@@ -1,25 +1,24 @@
-# Example Docker Compose for Unified Stirling-PDF Container
-# MODE=BACKEND: Backend API only (no frontend)
+# Example Docker Compose for Unified RedPDF Container
 
 services:
-  stirling-pdf-backend-only:
-    container_name: Stirling-PDF-Backend-Only
+  redpdf-backend-only:
+    container_name: RedPDF-Backend-Only
     build:
       context: ../..
       dockerfile: docker/Dockerfile.unified
     ports:
       - "8080:8080"
     volumes:
-      - ./stirling/data:/usr/share/tessdata:rw
-      - ./stirling/config:/configs:rw
-      - ./stirling/logs:/logs:rw
-      - ./stirling/customFiles:/customFiles:rw
-      - ./stirling/pipeline:/pipeline:rw
+      - ./redpdf/data:/usr/share/tessdata:rw
+      - ./redpdf/config:/configs:rw
+      - ./redpdf/logs:/logs:rw
+      - ./redpdf/customFiles:/customFiles:rw
+      - ./redpdf/pipeline:/pipeline:rw
     environment:
       # MODE parameter: BACKEND only
       MODE: BACKEND
 
-      # Standard Stirling-PDF configuration
+      # Standard RedPDF configuration
       DISABLE_ADDITIONAL_FEATURES: "false"
       DOCKER_ENABLE_SECURITY: "false"
       PUID: 1000
@@ -28,7 +27,7 @@ services:
 
       # Application settings
       SYSTEM_DEFAULTLOCALE: en-US
-      UI_APPNAME: Stirling-PDF
+      UI_APPNAME: RedPDF
       SYSTEM_MAXFILESIZE: "100"
       METRICS_ENABLED: "true"
 

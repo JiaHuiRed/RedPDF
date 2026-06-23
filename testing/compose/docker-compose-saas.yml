@@ -25,7 +25,7 @@ services:
       - payg-cucumber-network
 
   # ---------------------------------------------------------------------
-  # Stirling-PDF backend with STIRLING_FLAVOR=saas. Authenticates via
+  # RedPDF backend with STIRLING_FLAVOR=saas. Authenticates via
   # API key (SECURITY_CUSTOMGLOBALAPIKEY) — Supabase JWT enforcement is
   # disabled for the test profile via SAAS_DB_PROJECT_REF=disabled so the
   # OAuth resource-server filter no-ops. The PaygChargeInterceptor's
@@ -71,7 +71,7 @@ services:
 
       # The saas Flyway migrations assume `users` and `teams` already exist
       # (V2 ALTERs `users`; V5 references `teams(id)`) because in production
-      # those tables are provisioned by Supabase before Stirling starts. On
+      # those tables are provisioned by Supabase before RedPDF starts. On
       # a clean test postgres they don't exist, so we disable Flyway and let
       # Hibernate's `ddl-auto=create-drop` build the full schema from the
       # entity graph. The default-pricing-policy row that V12 seeds in

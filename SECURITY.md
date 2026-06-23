@@ -2,14 +2,14 @@
 
 ## Reporting a Vulnerability
 
-The Stirling-PDF team takes security vulnerabilities seriously. We appreciate your efforts to responsibly disclose your findings.
+The RedPDF team takes security vulnerabilities seriously. We appreciate your efforts to responsibly disclose your findings.
 
 ### How to Report
 
 You can report security vulnerabilities through two channels:
 
 1. **GitHub Security Advisory**:
-   - Navigate to the [Security tab](https://github.com/Stirling-Tools/Stirling-PDF/security) in our repository
+    - Navigate to the [Security tab](https://github.com/RedPDF/RedPDF/security) in our repository
    - Click on "Report a vulnerability"
    - Provide a detailed description of the vulnerability
 
@@ -41,22 +41,22 @@ We aim to acknowledge receipt of your vulnerability report within 48 hours
 
 ### Bug Bounty
 
-At this time, we do not offer a bug bounty program. However, we greatly appreciate your efforts in making Stirling-PDF more secure and will acknowledge your contribution in our release notes (unless you prefer to remain anonymous).
+At this time, we do not offer a bug bounty program. However, we greatly appreciate your efforts in making RedPDF more secure and will acknowledge your contribution in our release notes (unless you prefer to remain anonymous).
 
 ## Supported Versions
 
-Only the latest version of Stirling-PDF is supported for security updates. We do not backport security fixes to older versions.
+Only the latest version of RedPDF is supported for security updates. We do not backport security fixes to older versions.
 
 | Version | Supported          |
 | ------- | ------------------ |
 | Latest  | :white_check_mark: |
 | Older   | :x:               |
 
-**Please note:** Before reporting a security issue, ensure you are using the latest version of Stirling-PDF. Security reports for older versions will not be accepted.
+**Please note:** Before reporting a security issue, ensure that you are using the latest version of RedPDF. Security reports for older versions will not be accepted.
 
 ## Security Best Practices
 
-When deploying Stirling-PDF:
+When deploying RedPDF:
 
 1. Always use the latest version
 2. Follow our deployment guidelines

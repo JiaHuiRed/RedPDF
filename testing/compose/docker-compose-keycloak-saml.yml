@@ -49,8 +49,8 @@ services:
     networks:
       - stirling-saml-test
 
-  stirling-pdf-saml:
-    container_name: stirling-pdf-saml-test
+  redpdf-saml:
+    container_name: redpdf-saml-test
     image: docker.stirlingpdf.com/stirlingtools/stirling-pdf:latest
     build:
       context: ../..
@@ -100,9 +100,9 @@ services:
       LOGGING_LEVEL_ORG_OPENSAML: DEBUG
       LOGGING_LEVEL_STIRLING_SOFTWARE_PROPRIETARY_SECURITY: DEBUG
       LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: DEBUG
-      UI_APPNAME: Stirling-PDF SAML Test
+      UI_APPNAME: RedPDF SAML Test
       UI_HOMEDESCRIPTION: Keycloak SAML Test Instance
-      UI_APPNAMENAVBAR: Stirling-PDF SAML
+      UI_APPNAMENAVBAR: RedPDF SAML
       SYSTEM_MAXFILESIZE: "100"
 
       # SAML Configuration (Keycloak)
@@ -157,5 +157,5 @@ services:
     restart: on-failure:5
 
 networks:
-  stirling-saml-test:
+  redpdf-saml-test:
     driver: bridge

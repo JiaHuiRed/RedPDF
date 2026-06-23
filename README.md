@@ -1,69 +1,71 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Stirling-Tools/Stirling-PDF/main/docs/stirling.png" width="80" alt="Stirling PDF logo">
+  <img src="https://raw.githubusercontent.com/RedPDF/RedPDF/main/docs/stirling.png" width="80" alt="RedPDF logo">
 </p>
 
-<h1 align="center">Stirling PDF - The Open-Source PDF Platform</h1>
+<h1 align="center">RedPDF - 开源 PDF 平台</h1>
 
-Stirling PDF is a powerful, open-source PDF editing platform. Run it as a personal desktop app, in the browser, or deploy it on your own servers with a private API. Edit, sign, redact, convert, and automate PDFs without sending documents to external services.
+RedPDF 是一个本地 PDF 工具，合并了编辑、转换、OCR、签名、压缩等常用功能，直接跑在浏览器或桌面端，不用把文件传去任何在线服务。
+
+_An open-source PDF toolkit — runs locally in your browser or desktop, no uploads required._
 
 <p align="center">
-  <a href="https://hub.docker.com/r/stirlingtools/stirling-pdf">
-    <img src="https://img.shields.io/docker/pulls/frooodle/s-pdf" alt="Docker Pulls">
+  <a href="https://hub.docker.com/r/redpdf/redpdf">
+    <img src="https://img.shields.io/docker/pulls/redpdf/redpdf" alt="Docker Pulls">
   </a>
   <a href="https://discord.gg/HYmhKj45pU">
     <img src="https://img.shields.io/discord/1068636748814483718?label=Discord" alt="Discord">
   </a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/Stirling-Tools/Stirling-PDF">
-    <img src="https://api.scorecard.dev/projects/github.com/Stirling-Tools/Stirling-PDF/badge" alt="OpenSSF Scorecard">
+  <a href="https://scorecard.dev/viewer/?uri=github.com/RedPDF/RedPDF">
+    <img src="https://api.scorecard.dev/projects/github.com/RedPDF/RedPDF/badge" alt="OpenSSF Scorecard">
   </a>
-  <a href="https://github.com/Stirling-Tools/stirling-pdf">
-    <img src="https://img.shields.io/github/stars/stirling-tools/stirling-pdf?style=social" alt="GitHub Repo stars">
+  <a href="https://github.com/RedPDF/redpdf">
+    <img src="https://img.shields.io/github/stars/redpdf/redpdf?style=social" alt="GitHub Repo stars">
   </a>
 </p>
 
-![Stirling PDF - Dashboard](images/home-light.png)
+![RedPDF 界面截图（待替换为自制截图）](images/home-light.png)
 
-## Key Capabilities
+## ✨ 能做什么
 
-- **Everywhere you work** - Desktop client, browser UI, and self-hosted server with a private API.
-- **50+ PDF tools** - Edit, merge, split, sign, redact, convert, OCR, compress, and more.
-- **Automation & workflows** - No-code pipelines direct in UI with APIs to process millions of PDFs.
-- **Enterprise‑grade** - SSO, auditing, and flexible on‑prem deployments.
-- **Developer platform** - REST APIs available for nearly all tools to integrate into your existing systems.
-- **Global UI** - Interface available in 40+ languages.
+- 合并、拆分、旋转、压缩 PDF
+- PDF 转 Word / Excel / PPT / 图片 / 文本，也支持反向转换
+- OCR 文字识别
+- 添加水印、页码、签名
+- 加密、解密、涂黑
+- 支持批量处理，大文件也能跑
 
-For a full feature list, see the docs: **https://docs.stirlingpdf.com**
+---
 
-## Quick Start
+## 🚀 为什么做这个
+
+PDF 工具网上很多，但要么要上传文件，要么功能零散。RedPDF 想做一个本地能跑、功能集中、不用注册登录的替代品。基于 [Stirling-PDF](https://github.com/Stirling-Tools/Stirling-PDF) 二次开发，感谢原项目的优秀基础。
+
+---
+
+## ⌨️ 快速开始
 
 ```bash
-docker run -p 8080:8080 docker.stirlingpdf.com/stirlingtools/stirling-pdf
+docker run -p 8080:8080 docker.stirlingpdf.com/redpdf/redpdf
 ```
 
-Then open: http://localhost:8080
+浏览器打开 http://localhost:8080 就能用。
 
-For full installation options (including desktop and Kubernetes), see our [Documentation Guide](https://docs.stirlingpdf.com/#documentation-guide).
+桌面版和 Kubernetes 部署方式见 [Developer Guide](DeveloperGuide.md)。
 
-## Resources
+---
 
-- [**Documentation**](https://docs.stirlingpdf.com)
-- [**Homepage**](https://stirling.com)
-- [**API Docs**](https://registry.scalar.com/@stirlingpdf/apis/stirling-pdf-processing-api/)
-- [**Server Plan & Enterprise**](https://docs.stirlingpdf.com/Paid-Offerings)
+## 📋 资源与支持
 
-## Support
+- [**文档**](https://docs.stirlingpdf.com)
+- [**原项目 Stirling-PDF**](https://github.com/Stirling-Tools/Stirling-PDF) — RedPDF 基于此 fork
+- **问题反馈**：[GitHub Issues](https://github.com/RedPDF/RedPDF/issues)
 
-- **Community** [Discord](https://discord.gg/HYmhKj45pU)
-- **Bug Reports**: [Github issues](https://github.com/Stirling-Tools/Stirling-PDF/issues)
+参与贡献请先读 [CONTRIBUTING.md](CONTRIBUTING.md)。运行 `task dev` 启动开发环境，`task --list` 查看所有命令。
 
-## Contributing
+---
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-This project uses [Task](https://taskfile.dev/) as a unified command runner for all build, dev, and test commands. Run `task dev` to get started running the editor, run `task` to see the most common commands, or see the [Developer Guide](DeveloperGuide.md) for full details.
-
-For adding translations, see the [Translation Guide](devGuide/HowToAddNewLanguage.md).
+构建者：小宋 & Red
 
 ## License
 
-Stirling PDF is open-core. See [LICENSE](LICENSE) for details.
+RedPDF 是 open-core 项目。详情请参阅 [LICENSE](LICENSE)。

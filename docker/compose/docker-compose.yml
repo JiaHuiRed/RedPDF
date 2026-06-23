@@ -1,9 +1,9 @@
 services:
-  stirling-pdf:
+  redpdf:
     build:
       context: ../..
       dockerfile: docker/embedded/Dockerfile
-    container_name: stirling-pdf
+    container_name: redpdf
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080$${SYSTEM_ROOTURIPATH:-''}/api/v1/info/status | grep -q 'UP'"]
@@ -20,21 +20,21 @@ services:
       DISABLE_ADDITIONAL_FEATURES: "true"
       SECURITY_ENABLELOGIN: "false"
       SYSTEM_DEFAULTLOCALE: en-US
-      UI_APPNAME: Stirling-PDF
-      UI_HOMEDESCRIPTION: Demo site for Stirling-PDF Latest
-      UI_APPNAMENAVBAR: Stirling-PDF Latest
+      UI_APPNAME: RedPDF
+      UI_HOMEDESCRIPTION: Demo site for RedPDF Latest
+      UI_APPNAMENAVBAR: RedPDF Latest
       SYSTEM_MAXFILESIZE: "100"
       METRICS_ENABLED: "true"
       SYSTEM_GOOGLEVISIBILITY: "true"
       SHOW_SURVEY: "true"
     networks:
-      - stirling-network
+      - redpdf-network
 
 networks:
-  stirling-network:
+  redpdf-network:
     driver: bridge
 
 volumes:
-  stirling-data:
-  stirling-config:
-  stirling-logs:
+  redpdf-data:
+  redpdf-config:
+  redpdf-logs:

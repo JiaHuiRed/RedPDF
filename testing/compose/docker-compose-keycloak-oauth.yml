@@ -48,8 +48,8 @@ services:
     networks:
       - stirling-oauth-test
 
-  stirling-pdf-oauth:
-    container_name: stirling-pdf-oauth-test
+  redpdf-oauth:
+    container_name: redpdf-oauth-test
     image: docker.stirlingpdf.com/stirlingtools/stirling-pdf:latest
     build:
       context: ../..
@@ -78,9 +78,9 @@ services:
       PREMIUM_KEY: "${PREMIUM_KEY:-00000000-0000-0000-0000-000000000000}"
       PREMIUM_ENABLED: "true"
       PREMIUM_PROFEATURES_SSOAUTOLOGIN: "${PREMIUM_PROFEATURES_SSOAUTOLOGIN:-false}"
-      UI_APPNAME: Stirling-PDF OAuth Test
+      UI_APPNAME: RedPDF OAuth Test
       UI_HOMEDESCRIPTION: Keycloak OAuth2/OIDC Test Instance
-      UI_APPNAMENAVBAR: Stirling-PDF OAuth
+      UI_APPNAMENAVBAR: RedPDF OAuth
       SYSTEM_MAXFILESIZE: "100"
 
       # OAuth2 Configuration (Keycloak-specific path)
@@ -123,5 +123,5 @@ services:
     restart: on-failure:5
 
 networks:
-  stirling-oauth-test:
+  redpdf-oauth-test:
     driver: bridge
