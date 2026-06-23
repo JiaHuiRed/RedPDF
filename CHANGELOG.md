@@ -19,3 +19,9 @@
 - tauri updater endpoint + pubkey（需自行搭建 release signing）
 - IndexedDB 数据库名（升级策略待定）
 - 外部链接域名（docs.stirlingpdf.com 等）
+
+## 0.0.3（计划中）
+
+### ✨ 新功能
+
+- **build.bat** — Windows 一键编译脚本，双击即可构建后端 + 前端
