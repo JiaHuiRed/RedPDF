@@ -1,8 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { resolveLandingPath } from "@app/utils/loginLanding";
 import { supabase } from "@app/auth/supabase";
-import { Button } from "@mantine/core";
+import { Button } from "@app/ui/Button";
 import { withBasePath } from "@app/constants/app";
+import { readPendingConnect } from "@app/routes/pendingConnect";
+import { isSafePostLoginRedirect } from "@app/services/postLoginRedirect";
+import { takePendingDestination } from "@app/services/pendingDestination";
+import { AuthShell } from "@app/auth/ui/AuthShell";
+import ErrorMessage from "@app/auth/ui/ErrorMessage";
+import { Spinner } from "@app/ui/Spinner";
+import "@app/auth/ui/auth.css";
+import loginHeader from "@app/assets/brand/modern-logo/LoginLightModeHeader.svg";
 
 interface CallbackState {
   status: "processing" | "success" | "error";
@@ -12,9 +22,10 @@ interface CallbackState {
 
 export default function AuthCallback() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [state, setState] = useState<CallbackState>({
     status: "processing",
-    message: "Processing authentication...",
+    message: t("auth.callback.processing", "Processing authentication..."),
   });
 
   useEffect(() => {
@@ -24,7 +35,11 @@ export default function AuthCallback() {
         const code = url.searchParams.get("code");
         const error = url.searchParams.get("error");
         const errorDescription = url.searchParams.get("error_description");
-        const next = url.searchParams.get("next") || "/";
+        // For the debug log; the redirect below reads the param itself. Left
+        // undefaulted because a default would pass the safety guard, so any branch
+        // on it in that chain matches every param-less sign-in and masks the
+        // fallbacks beneath it.
+        const next = url.searchParams.get("next");
 
         console.log("[Auth Callback Debug] URL parameters:", {
           hasCode: !!code,
@@ -45,7 +60,11 @@ export default function AuthCallback() {
 
           setState({
             status: "error",
-            message: `Authentication failed: ${errorMsg}`,
+            message: t(
+              "auth.callback.failedWithReason",
+              "Authentication failed: {{error}}",
+              { error: errorMsg },
+            ),
             details: { error, errorDescription },
           });
 
@@ -60,7 +79,10 @@ export default function AuthCallback() {
 
           setState({
             status: "processing",
-            message: "Exchanging authorization code...",
+            message: t(
+              "auth.callback.exchanging",
+              "Exchanging authorization code...",
+            ),
           });
 
           const { data, error: exchangeError } =
@@ -74,7 +96,13 @@ export default function AuthCallback() {
 
             setState({
               status: "error",
-              message: `Failed to complete sign in: ${exchangeError.message}`,
+              message: t(
+                "auth.callback.signInFailed",
+                "Failed to complete sign in: {{error}}",
+                {
+                  error: exchangeError.message,
+                },
+              ),
               details: { exchangeError },
             });
 
@@ -90,7 +118,10 @@ export default function AuthCallback() {
 
           setState({
             status: "success",
-            message: "Sign in successful! Redirecting...",
+            message: t(
+              "auth.callback.success",
+              "Sign in successful! Redirecting...",
+            ),
             details: {
               userId: data.session?.user?.id,
               email: data.session?.user?.email,
@@ -109,21 +140,38 @@ export default function AuthCallback() {
             console.log("[Auth Callback Debug] Existing session found");
             setState({
               status: "success",
-              message: "Already signed in! Redirecting...",
+              message: t(
+                "auth.callback.alreadySignedIn",
+                "Already signed in! Redirecting...",
+              ),
             });
           } else {
             console.log("[Auth Callback Debug] No session found");
             setState({
               status: "error",
-              message: "No authentication data found",
+              message: t(
+                "auth.callback.noData",
+                "No authentication data found",
+              ),
             });
             setTimeout(() => navigate("/login", { replace: true }), 2000);
             return;
           }
         }
 
-        // Redirect to the intended destination
-        const destination = next.startsWith("/") ? next : "/";
+        // A deliberate `next` outranks a remembered intent so it cannot be hijacked;
+        // a remembered one is all a sign-up has, its confirmation link being unable
+        // to carry a `next`. Claimed up front because reaching here means the detour
+        // is over, so the intent is spent whichever wins.
+        const explicitNext =
+          url.searchParams.get("next") ?? url.searchParams.get("from");
+        const pendingConnect = readPendingConnect();
+        const remembered = takePendingDestination();
+        const destination = isSafePostLoginRedirect(explicitNext)
+          ? explicitNext
+          : pendingConnect
+            ? `/link?request=${encodeURIComponent(pendingConnect)}`
+            : (remembered ?? (await resolveLandingPath()));
         console.log("[Auth Callback Debug] Redirecting to:", destination);
 
         setTimeout(() => navigate(destination, { replace: true }), 1500);
@@ -132,7 +180,12 @@ export default function AuthCallback() {
 
         setState({
           status: "error",
-          message: `Unexpected error: ${err instanceof Error ? err.message : "Unknown error"}`,
+          message: t("login.unexpectedError", "Unexpected error: {{message}}", {
+            message:
+              err instanceof Error
+                ? err.message
+                : t("auth.callback.unknownError", "Unknown error"),
+          }),
           details: { error: err },
         });
 
@@ -143,91 +196,80 @@ export default function AuthCallback() {
     handleCallback();
   }, [navigate]);
 
-  const getStatusColor = () => {
-    switch (state.status) {
-      case "processing":
-        return "text-blue-600";
-      case "success":
-        return "text-green-600";
-      case "error":
-        return "text-red-600";
-      default:
-        return "text-gray-600";
-    }
-  };
-
   const getTitle = () => {
     switch (state.status) {
       case "processing":
-        return "Signing you in";
+        return t("auth.callback.title.processing", "Signing you in");
       case "success":
-        return "You're all set!";
+        return t("auth.callback.title.success", "You're all set!");
       case "error":
-        return "Authentication failed";
+        return t("oauth.error.title", "Authentication failed");
       default:
-        return "Authentication";
+        return t("auth.callback.title.default", "Authentication");
     }
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-        <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full bg-blue-200/40 blur-3xl"></div>
-        <div className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-emerald-200/40 blur-3xl"></div>
+    <AuthShell>
+      <div className="auth-logo-block">
+        <img
+          src={loginHeader}
+          alt="Stirling PDF"
+          className="auth-logo-header auth-logo-header--light"
+        />
+        <img
+          src={withBasePath("/modern-logo/LoginDarkModeHeader.svg")}
+          alt="Stirling PDF"
+          className="auth-logo-header auth-logo-header--dark"
+        />
       </div>
 
-      <div
-        className={`w-full max-w-md rounded-2xl bg-white/80 backdrop-blur shadow-xl p-8`}
-      >
-        <div className="text-center">
-          <img
-            src={withBasePath("/modern-logo/StirlingPDFLogoNoTextDark.svg")}
-            alt="Stirling PDF"
-            className="mx-auto mb-5 h-8 opacity-80"
-          />
+      <h1 className="login-title" style={{ textAlign: "center" }}>
+        {getTitle()}
+      </h1>
 
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            {getTitle()}
-          </h1>
-          <p className={`text-base ${getStatusColor()}`}>{state.message}</p>
+      {state.status === "error" ? (
+        <ErrorMessage error={state.message} />
+      ) : (
+        <p className="login-subtitle" style={{ textAlign: "center" }}>
+          {state.message}
+        </p>
+      )}
 
-          {state.status === "processing" && (
-            <div className="mt-6">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-              <div className="mt-3 h-1 overflow-hidden rounded-full bg-slate-200">
-                <div className="h-full w-1/2 animate-pulse rounded-full bg-blue-500"></div>
-              </div>
-            </div>
-          )}
-
-          {/* Action button - only show if error */}
-          <div className="mt-6 flex items-center justify-center gap-3">
-            {(() => {
-              if (state.status === "error") {
-                return (
-                  <Button
-                    onClick={() => navigate("/login", { replace: true })}
-                    className="inline-flex items-center rounded-md bg-rose-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-500"
-                  >
-                    Back to login
-                  </Button>
-                );
-              }
-            })()}
-          </div>
-
-          {import.meta.env.DEV && state.details && (
-            <details className="mt-6 text-left">
-              <summary className="cursor-pointer text-sm text-gray-500 hover:text-gray-700">
-                Debug Information
-              </summary>
-              <pre className="mt-2 p-3 bg-gray-100 rounded text-xs overflow-auto">
-                {JSON.stringify(state.details, null, 2)}
-              </pre>
-            </details>
-          )}
+      {state.status === "processing" && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            margin: "1rem 0",
+          }}
+        >
+          <Spinner size="md" />
         </div>
-      </div>
-    </div>
+      )}
+
+      {state.status === "error" && (
+        <div className="auth-section">
+          <Button
+            accent="danger"
+            fullWidth
+            onClick={() => navigate("/login", { replace: true })}
+          >
+            {t("auth.callback.backToLogin", "Back to login")}
+          </Button>
+        </div>
+      )}
+
+      {import.meta.env.DEV && state.details && (
+        <details className="mt-6 text-left">
+          <summary className="cursor-pointer text-sm text-gray-500 hover:text-gray-700">
+            Debug Information
+          </summary>
+          <pre className="mt-2 p-3 bg-gray-100 rounded text-xs overflow-auto">
+            {JSON.stringify(state.details, null, 2)}
+          </pre>
+        </details>
+      )}
+    </AuthShell>
   );
 }

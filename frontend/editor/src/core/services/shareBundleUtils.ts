@@ -1,8 +1,50 @@
-import JSZip from "jszip";
+import type JSZipClass from "jszip";
 
 import type { ShareBundleManifest } from "@app/services/serverStorageBundle";
 
 const MANIFEST_FILENAME = "stirling-share.json";
+
+type HeaderLike = {
+  get?: (name: string) => unknown;
+  [key: string]: unknown;
+};
+
+function headerValueToString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const firstString = value.find(
+      (entry): entry is string => typeof entry === "string",
+    );
+    return firstString ?? "";
+  }
+  return "";
+}
+
+function toHeaderKey(name: string): string {
+  return name.replace(
+    /(^|-)([a-z])/g,
+    (_, prefix: string, char: string) => prefix + char.toUpperCase(),
+  );
+}
+
+export function readResponseHeader(headers: unknown, name: string): string {
+  if (!headers || typeof headers !== "object") {
+    return "";
+  }
+
+  const typedHeaders = headers as HeaderLike;
+  if (typeof typedHeaders.get === "function") {
+    return headerValueToString(typedHeaders.get(name));
+  }
+
+  return (
+    headerValueToString(typedHeaders[name]) ||
+    headerValueToString(typedHeaders[toHeaderKey(name)])
+  );
+}
 
 export function parseContentDispositionFilename(
   disposition?: string,
@@ -52,12 +94,27 @@ export function resolveShareBundleOrder(manifest: ShareBundleManifest): {
   return { rootOrder, sortedEntries };
 }
 
+// JSZip is ~140 KB and only needed to build or read a share bundle.
+let jsZipPromise: Promise<typeof JSZipClass> | null = null;
+
+function loadJSZip(): Promise<typeof JSZipClass> {
+  jsZipPromise ??= import("jszip")
+    .then((mod) => mod.default)
+    .catch((cause) => {
+      // Reset so a later caller can retry a failed load.
+      jsZipPromise = null;
+      throw cause;
+    });
+  return jsZipPromise;
+}
+
 export async function loadShareBundleEntries(blob: Blob): Promise<{
   manifest: ShareBundleManifest;
   rootOrder: string[];
   sortedEntries: ShareBundleManifest["entries"];
   files: File[];
 } | null> {
+  const JSZip = await loadJSZip();
   const zip = await JSZip.loadAsync(blob);
   const manifestEntry = zip.file(MANIFEST_FILENAME);
   if (!manifestEntry) {

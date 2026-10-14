@@ -23,7 +23,7 @@ _An open-source PDF toolkit — runs locally in your browser or desktop, no uplo
   </a>
 </p>
 
-![RedPDF 界面截图（待替换为自制截图）](images/home-light.png)
+![RedPDF 界面截图](docs/images/home-light.png)
 
 ## ✨ 能做什么
 
@@ -50,7 +50,7 @@ docker run -p 8080:8080 docker.stirlingpdf.com/redpdf/redpdf
 
 浏览器打开 http://localhost:8080 就能用。
 
-桌面版和 Kubernetes 部署方式见 [Developer Guide](DeveloperGuide.md)。
+桌面版和 Kubernetes 部署方式见 [Developer Guide](docs/developer/DeveloperGuide.md)。
 
 ---
 
@@ -60,11 +60,18 @@ docker run -p 8080:8080 docker.stirlingpdf.com/redpdf/redpdf
 - [**原项目 Stirling-PDF**](https://github.com/Stirling-Tools/Stirling-PDF) — RedPDF 基于此 fork
 - **问题反馈**：[GitHub Issues](https://github.com/RedPDF/RedPDF/issues)
 
-参与贡献请先读 [CONTRIBUTING.md](CONTRIBUTING.md)。运行 `task dev` 启动开发环境，`task --list` 查看所有命令。
+- **Community**: [Discord](https://discord.gg/HYmhKj45pU)
+- **Bug Reports**: [GitHub Issues](https://github.com/RedPDF/RedPDF/issues)
+
+参与贡献请先读 [CONTRIBUTING.md](.github/CONTRIBUTING.md)。运行 `task dev` 启动开发环境，`task --list` 查看所有命令。
 
 ---
 
 构建者：小宋 & Red
+
+欢迎参与贡献！请参阅 [CONTRIBUTING.md](.github/CONTRIBUTING.md)。本项目使用 [Task](https://taskfile.dev/) 统一管理构建、开发与测试命令，运行 `task dev` 即可启动编辑器，运行 `task` 查看常用命令，详见 [Developer Guide](docs/developer/DeveloperGuide.md)。
+
+新增翻译语言请参阅 [Translation Guide](docs/developer/HowToAddNewLanguage.md)。
 
 ## License
 

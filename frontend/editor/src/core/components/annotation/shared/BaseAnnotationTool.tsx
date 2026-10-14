@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Stack, Alert, Text } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { DrawingControls } from "@app/components/annotation/shared/DrawingControls";
 import { ColorPicker } from "@app/components/annotation/shared/ColorPicker";
 import { usePDFAnnotation } from "@app/components/annotation/providers/PDFAnnotationProvider";
 import { useSignature } from "@app/contexts/SignatureContext";
+import { useHistoryAvailability } from "@app/hooks/useHistoryAvailability";
 
 export interface AnnotationToolConfig {
   enableDrawing?: boolean;
@@ -14,9 +15,17 @@ export interface AnnotationToolConfig {
   placeButtonText?: string;
 }
 
+interface InjectedAnnotationToolProps {
+  selectedColor: string;
+  signatureData: string | null;
+  onSignatureDataChange: (data: string | null) => void;
+  onColorSwatchClick: () => void;
+  disabled: boolean;
+}
+
 interface BaseAnnotationToolProps {
   config: AnnotationToolConfig;
-  children: React.ReactNode;
+  children: React.ReactElement<Partial<InjectedAnnotationToolProps>>;
   onSignatureDataChange?: (data: string | null) => void;
   disabled?: boolean;
 }
@@ -34,32 +43,7 @@ export const BaseAnnotationTool: React.FC<BaseAnnotationToolProps> = ({
   const [selectedColor, setSelectedColor] = useState("#000000");
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const [signatureData, setSignatureData] = useState<string | null>(null);
-  const [historyAvailability, setHistoryAvailability] = useState({
-    canUndo: false,
-    canRedo: false,
-  });
-  const historyApiInstance = historyApiRef.current;
-
-  useEffect(() => {
-    if (!historyApiInstance) {
-      setHistoryAvailability({ canUndo: false, canRedo: false });
-      return;
-    }
-
-    const updateAvailability = () => {
-      setHistoryAvailability({
-        canUndo: historyApiInstance.canUndo?.() ?? false,
-        canRedo: historyApiInstance.canRedo?.() ?? false,
-      });
-    };
-
-    const unsubscribe = historyApiInstance.subscribe?.(updateAvailability);
-    updateAvailability();
-
-    return () => {
-      unsubscribe?.();
-    };
-  }, [historyApiInstance]);
+  const historyAvailability = useHistoryAvailability(historyApiRef);
 
   const handleSignatureDataChange = (data: string | null) => {
     setSignatureData(data);
@@ -90,7 +74,7 @@ export const BaseAnnotationTool: React.FC<BaseAnnotationToolProps> = ({
       />
 
       {/* Tool Content */}
-      {React.cloneElement(children as React.ReactElement<any>, {
+      {React.cloneElement(children, {
         selectedColor,
         signatureData,
         onSignatureDataChange: handleSignatureDataChange,
@@ -104,7 +88,10 @@ export const BaseAnnotationTool: React.FC<BaseAnnotationToolProps> = ({
         title={t("sign.instructions.title", "How to add signature")}
       >
         <Text size="sm">
-          Click anywhere on the PDF to place your annotation.
+          {t(
+            "sign.instructions.placeAnnotation",
+            "Click anywhere on the PDF to place your annotation.",
+          )}
         </Text>
       </Alert>
 

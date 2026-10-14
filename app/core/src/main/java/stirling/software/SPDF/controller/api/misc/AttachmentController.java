@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
@@ -15,26 +16,33 @@ import org.springframework.web.multipart.MultipartFile;
 import io.github.pixee.security.Filenames;
 import io.swagger.v3.oas.annotations.Operation;
 
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import stirling.software.SPDF.config.swagger.StandardPdfResponse;
 import stirling.software.SPDF.controller.api.converters.ConvertPDFToPDFA;
 import stirling.software.SPDF.model.api.misc.AddAttachmentRequest;
+import stirling.software.SPDF.model.api.misc.BatchAttachmentRequest;
 import stirling.software.SPDF.model.api.misc.DeleteAttachmentRequest;
 import stirling.software.SPDF.model.api.misc.ExtractAttachmentsRequest;
+import stirling.software.SPDF.model.api.misc.ExtractSingleAttachmentRequest;
 import stirling.software.SPDF.model.api.misc.ListAttachmentsRequest;
 import stirling.software.SPDF.model.api.misc.RenameAttachmentRequest;
 import stirling.software.SPDF.service.AttachmentServiceInterface;
 import stirling.software.common.annotations.AutoJobPostMapping;
 import stirling.software.common.annotations.api.MiscApi;
 import stirling.software.common.enumeration.ResourceWeight;
+import stirling.software.common.model.tool.ToolFormat;
+import stirling.software.common.model.tool.ToolIO;
 import stirling.software.common.service.CustomPDFDocumentFactory;
 import stirling.software.common.util.ExceptionUtils;
 import stirling.software.common.util.GeneralUtils;
 import stirling.software.common.util.TempFile;
 import stirling.software.common.util.TempFileManager;
 import stirling.software.common.util.WebResponseUtils;
+
+import tools.jackson.databind.ObjectMapper;
 
 @MiscApi
 @Slf4j
@@ -49,15 +57,17 @@ public class AttachmentController {
 
     private final TempFileManager tempFileManager;
 
+    private final ObjectMapper objectMapper;
+
     @AutoJobPostMapping(
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
             value = "/add-attachments",
             resourceWeight = ResourceWeight.SMALL_WEIGHT)
     @StandardPdfResponse
+    @ToolIO(produces = ToolFormat.PDF)
     @Operation(
             summary = "Add attachments to PDF",
-            description =
-                    "This endpoint adds attachments to a PDF. Input:PDF, Output:PDF Type:MISO")
+            description = "This endpoint adds attachments to a PDF.")
     public ResponseEntity<Resource> addAttachments(@ModelAttribute AddAttachmentRequest request)
             throws Exception {
         MultipartFile fileInput = request.getFileInput();
@@ -66,7 +76,8 @@ public class AttachmentController {
 
         validateAttachmentRequest(attachments);
 
-        String originalFileName = Filenames.toSimpleFileName(fileInput.getOriginalFilename());
+        String originalFileName =
+                Filenames.toSimpleFileName(sourceFileName(fileInput, request.getFileId()));
         if (originalFileName == null || originalFileName.isEmpty()) {
             originalFileName = "document";
         }
@@ -98,11 +109,20 @@ public class AttachmentController {
                 return WebResponseUtils.pdfDocToWebResponse(
                         document,
                         GeneralUtils.generateFilename(
-                                Filenames.toSimpleFileName(fileInput.getOriginalFilename()),
+                                Filenames.toSimpleFileName(
+                                        sourceFileName(fileInput, request.getFileId())),
                                 "_with_attachments.pdf"),
                         tempFileManager);
             }
         }
+    }
+
+    /**
+     * Output filename source for fileId-based requests, where no upload exists to name the result
+     * after. Mirrors the null-safe handling in extractAttachments.
+     */
+    private static String sourceFileName(MultipartFile fileInput, String fileId) {
+        return fileInput != null ? fileInput.getOriginalFilename() : fileId;
     }
 
     private void validateAttachmentRequest(List<MultipartFile> attachments) {
@@ -143,11 +163,11 @@ public class AttachmentController {
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
             value = "/extract-attachments",
             resourceWeight = ResourceWeight.SMALL_WEIGHT)
+    @ToolIO(produces = ToolFormat.ZIP)
     @Operation(
             summary = "Extract attachments from PDF",
             description =
-                    "This endpoint extracts all embedded attachments from a PDF into a ZIP archive."
-                            + " Input:PDF Output:ZIP Type:SISO")
+                    "This endpoint extracts all embedded attachments from a PDF into a ZIP archive.")
     public ResponseEntity<Resource> extractAttachments(
             @ModelAttribute ExtractAttachmentsRequest request) throws IOException {
         try (PDDocument document = pdfDocumentFactory.load(request, true)) {
@@ -181,10 +201,10 @@ public class AttachmentController {
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
             value = "/list-attachments",
             resourceWeight = ResourceWeight.SMALL_WEIGHT)
+    @ToolIO(produces = ToolFormat.JSON)
     @Operation(
             summary = "List attachments in PDF",
-            description =
-                    "This endpoint lists all embedded attachments in a PDF. Input:PDF Output:JSON Type:SISO")
+            description = "This endpoint lists all embedded attachments in a PDF.")
     public ResponseEntity<List<stirling.software.SPDF.model.api.misc.AttachmentInfo>>
             listAttachments(@ModelAttribute ListAttachmentsRequest request) throws IOException {
         try (PDDocument document = pdfDocumentFactory.load(request, true)) {
@@ -200,10 +220,10 @@ public class AttachmentController {
             value = "/rename-attachment",
             resourceWeight = ResourceWeight.SMALL_WEIGHT)
     @StandardPdfResponse
+    @ToolIO(produces = ToolFormat.PDF)
     @Operation(
             summary = "Rename attachment in PDF",
-            description =
-                    "This endpoint renames an embedded attachment in a PDF. Input:PDF Output:PDF Type:MISO")
+            description = "This endpoint renames an embedded attachment in a PDF.")
     public ResponseEntity<Resource> renameAttachment(
             @ModelAttribute RenameAttachmentRequest request) throws Exception {
         MultipartFile fileInput = request.getFileInput();
@@ -225,7 +245,8 @@ public class AttachmentController {
             return WebResponseUtils.pdfDocToWebResponse(
                     document,
                     GeneralUtils.generateFilename(
-                            Filenames.toSimpleFileName(fileInput.getOriginalFilename()),
+                            Filenames.toSimpleFileName(
+                                    sourceFileName(fileInput, request.getFileId())),
                             "_attachment_renamed.pdf"),
                     tempFileManager);
         }
@@ -236,10 +257,10 @@ public class AttachmentController {
             value = "/delete-attachment",
             resourceWeight = ResourceWeight.SMALL_WEIGHT)
     @StandardPdfResponse
+    @ToolIO(produces = ToolFormat.PDF)
     @Operation(
             summary = "Delete attachment from PDF",
-            description =
-                    "This endpoint deletes an embedded attachment from a PDF. Input:PDF Output:PDF Type:MISO")
+            description = "This endpoint deletes an embedded attachment from a PDF.")
     public ResponseEntity<Resource> deleteAttachment(
             @ModelAttribute DeleteAttachmentRequest request) throws Exception {
         MultipartFile fileInput = request.getFileInput();
@@ -256,9 +277,153 @@ public class AttachmentController {
             return WebResponseUtils.pdfDocToWebResponse(
                     document,
                     GeneralUtils.generateFilename(
-                            Filenames.toSimpleFileName(fileInput.getOriginalFilename()),
+                            Filenames.toSimpleFileName(
+                                    sourceFileName(fileInput, request.getFileId())),
                             "_attachment_deleted.pdf"),
                     tempFileManager);
         }
+    }
+
+    @AutoJobPostMapping(
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+            value = "/extract-single-attachment",
+            resourceWeight = ResourceWeight.SMALL_WEIGHT)
+    @ToolIO(produces = ToolFormat.ANY)
+    @Operation(
+            summary = "Extract a single attachment from PDF",
+            description = "This endpoint extracts a single embedded attachment from a PDF by name.")
+    public ResponseEntity<Resource> extractSingleAttachment(
+            @ModelAttribute ExtractSingleAttachmentRequest request) throws IOException {
+        String attachmentName = request.getAttachmentName();
+        if (attachmentName == null || attachmentName.isBlank()) {
+            throw ExceptionUtils.createIllegalArgumentException(
+                    "error.attachmentNameRequired", "Attachment name cannot be null or empty");
+        }
+
+        try (PDDocument document = pdfDocumentFactory.load(request, true)) {
+            Optional<byte[]> extracted =
+                    pdfAttachmentService.extractSingleAttachment(document, attachmentName);
+
+            if (extracted.isEmpty()) {
+                throw ExceptionUtils.createIllegalArgumentException(
+                        "error.attachmentNotFound",
+                        "Attachment ''{0}'' not found in the provided PDF",
+                        attachmentName);
+            }
+
+            String simpleName = Filenames.toSimpleFileName(attachmentName);
+            TempFile tempOut = tempFileManager.createManagedTempFile(".bin");
+            try {
+                Files.write(tempOut.getFile().toPath(), extracted.get());
+            } catch (IOException e) {
+                tempOut.close();
+                throw e;
+            }
+
+            return WebResponseUtils.fileToWebResponse(
+                    tempOut, simpleName, MediaType.APPLICATION_OCTET_STREAM);
+        }
+    }
+
+    @AutoJobPostMapping(
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+            value = "/batch-process-attachments",
+            resourceWeight = ResourceWeight.SMALL_WEIGHT)
+    @StandardPdfResponse
+    @ToolIO(produces = ToolFormat.PDF)
+    @Operation(
+            summary = "Batch process attachments in PDF",
+            description =
+                    "This endpoint applies batch renames, deletions, and additions to PDF attachments in a single pass. Unknown rename or delete targets are skipped, so re-list attachments afterwards to reconcile.")
+    public ResponseEntity<Resource> batchProcessAttachments(
+            @ModelAttribute BatchAttachmentRequest request) throws Exception {
+        MultipartFile fileInput = request.getFileInput();
+        String opsJson = request.getOpsJson();
+        List<MultipartFile> additions = request.getAttachments();
+        boolean convertToPdfA3b = request.isConvertToPdfA3b();
+
+        if (additions != null && !additions.isEmpty()) {
+            validateAttachmentRequest(additions);
+        }
+
+        BatchOpsData opsData = null;
+        if (opsJson != null && !opsJson.isBlank()) {
+            opsData = objectMapper.readValue(opsJson, BatchOpsData.class);
+        }
+
+        try (PDDocument document = pdfDocumentFactory.load(request, false)) {
+            if (opsData != null) {
+                if (opsData.getDeletions() != null) {
+                    for (String delName : opsData.getDeletions()) {
+                        try {
+                            pdfAttachmentService.deleteAttachment(document, delName);
+                        } catch (IOException | RuntimeException e) {
+                            log.warn("Batch deletion of '{}' skipped: {}", delName, e.getMessage());
+                        }
+                    }
+                }
+                if (opsData.getRenames() != null) {
+                    for (RenameOp renameOp : opsData.getRenames()) {
+                        if (renameOp.getOldName() != null && renameOp.getNewName() != null) {
+                            try {
+                                pdfAttachmentService.renameAttachment(
+                                        document, renameOp.getOldName(), renameOp.getNewName());
+                            } catch (IOException | RuntimeException e) {
+                                log.warn(
+                                        "Batch rename from '{}' to '{}' skipped: {}",
+                                        renameOp.getOldName(),
+                                        renameOp.getNewName(),
+                                        e.getMessage());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (additions != null && !additions.isEmpty()) {
+                pdfAttachmentService.addAttachment(document, additions);
+            }
+
+            String originalFileName =
+                    Filenames.toSimpleFileName(sourceFileName(fileInput, request.getFileId()));
+            if (originalFileName == null || originalFileName.isEmpty()) {
+                originalFileName = "document";
+            }
+            String baseFileName =
+                    originalFileName.contains(".")
+                            ? originalFileName.substring(0, originalFileName.lastIndexOf('.'))
+                            : originalFileName;
+
+            if (convertToPdfA3b) {
+                byte[] pdfaBytes = convertPDFToPDFA.convertPDDocumentToPDFA(document, "pdfa-3b");
+                try (PDDocument pdfaDocument = Loader.loadPDF(pdfaBytes)) {
+                    convertPDFToPDFA.ensureEmbeddedFileCompliance(pdfaDocument);
+                    ConvertPDFToPDFA.fixType1FontCharSet(pdfaDocument);
+                    String outputFilename = baseFileName + "_attachments_modified_PDFA-3b.pdf";
+                    return WebResponseUtils.pdfDocToWebResponse(
+                            pdfaDocument, outputFilename, tempFileManager);
+                }
+            } else {
+                return WebResponseUtils.pdfDocToWebResponse(
+                        document,
+                        GeneralUtils.generateFilename(
+                                Filenames.toSimpleFileName(
+                                        sourceFileName(fileInput, request.getFileId())),
+                                "_attachments_modified.pdf"),
+                        tempFileManager);
+            }
+        }
+    }
+
+    @Data
+    public static class BatchOpsData {
+        private List<RenameOp> renames;
+        private List<String> deletions;
+    }
+
+    @Data
+    public static class RenameOp {
+        private String oldName;
+        private String newName;
     }
 }

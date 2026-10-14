@@ -1,13 +1,13 @@
 import React, { useState } from "react";
-import { Stack, Button, TextInput, Alert, Text } from "@mantine/core";
+import { Stack, TextInput, Alert, Text } from "@mantine/core";
+import { Button } from "@app/ui/Button";
 import { useTranslation } from "react-i18next";
 import {
   ServerConfig,
   SSOProviderConfig,
 } from "@app/services/connectionModeService";
 import { connectionModeService } from "@app/services/connectionModeService";
-import LocalIcon from "@app/components/shared/LocalIcon";
-
+import { Icon } from "@app/ui/Icon";
 interface ServerSelectionProps {
   onSelect: (config: ServerConfig) => void;
   loading: boolean;
@@ -195,7 +195,9 @@ export const ServerSelection: React.FC<ServerSelectionProps> = ({
 
         // For any other error (network, CORS, invalid JSON, etc.), show error and don't proceed
         const errorMessage =
-          err instanceof Error ? err.message : "Unknown error";
+          err instanceof Error
+            ? err.message
+            : t("setup.server.error.unknown", "Unknown error");
         console.error(
           "[ServerSelection] Configuration fetch error details:",
           errorMessage,
@@ -269,13 +271,7 @@ export const ServerSelection: React.FC<ServerSelectionProps> = ({
           <Alert
             variant="light"
             color="orange"
-            icon={
-              <LocalIcon
-                icon="warning-rounded"
-                width="1.25rem"
-                height="1.25rem"
-              />
-            }
+            icon={<Icon name="triangle-alert" size="1.25rem" />}
             title={t(
               "setup.server.error.securityDisabled.title",
               "Login Not Enabled",
@@ -316,8 +312,8 @@ export const ServerSelection: React.FC<ServerSelectionProps> = ({
 
         {serverUrl && (
           <div className="navigation-link-container">
-            <button
-              type="button"
+            <Button
+              variant="tertiary"
               className="navigation-link-button"
               disabled={testing || loading}
               onClick={() => {
@@ -331,7 +327,7 @@ export const ServerSelection: React.FC<ServerSelectionProps> = ({
               {t("setup.server.useLast", "Last used server: {{serverUrl}}", {
                 serverUrl: serverUrl,
               })}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -339,9 +335,11 @@ export const ServerSelection: React.FC<ServerSelectionProps> = ({
           type="submit"
           loading={testing || loading}
           disabled={loading}
-          mt="md"
           fullWidth
-          color="#AF3434"
+          accent="danger"
+          style={{
+            marginTop: "var(--mantine-spacing-md)",
+          }}
         >
           {testing
             ? t("setup.server.testing", "Testing connection...")

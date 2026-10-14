@@ -1,33 +1,30 @@
 import React, {
-  createContext,
-  useContext,
   useState,
   useMemo,
   useEffect,
+  useLayoutEffect,
   ReactNode,
   useRef,
   useCallback,
 } from "react";
 import { useNavigation } from "@app/contexts/NavigationContext";
-import { useFileState } from "@app/contexts/FileContext";
+import {
+  useFileIndex,
+  useFileSelector,
+  useFileSelectors,
+} from "@app/contexts/FileContext";
 import { isStirlingFile } from "@app/types/fileContext";
+import type { FileId } from "@app/types/file";
+import { enforceExportPolicies } from "@app/services/policyExport";
+import { useTranslation } from "react-i18next";
+import { alert } from "@app/components/toast";
 import {
   preferencesService,
   type PdfRenderMode,
 } from "@app/services/preferencesService";
 import {
   createViewerActions,
-  ScrollActions,
-  ZoomActions,
-  PanActions,
-  SelectionActions,
-  SpreadActions,
-  RotationActions,
-  SearchActions,
-  ExportActions,
-  BookmarkActions,
-  AttachmentActions,
-  PrintActions,
+  type PrintActions,
 } from "@app/contexts/viewer/viewerActions";
 import {
   BridgeRef,
@@ -45,13 +42,27 @@ import {
   RotationState,
   SearchState,
   ExportState,
-  ThumbnailAPIWrapper,
   BookmarkState,
   AttachmentState,
   DocumentPermissionsState,
   PdfPermissionFlag,
 } from "@app/contexts/viewer/viewerBridges";
-import { SpreadMode } from "@embedpdf/plugin-spread/react";
+import {
+  ViewerContext,
+  type ViewerContextType,
+} from "@app/contexts/viewer/viewerContext";
+import type { SpreadMode } from "@embedpdf/plugin-spread/react";
+
+/**
+ * SpreadMode.None as a literal. This context sits at the app root, and a runtime
+ * import of any embedpdf module loads the whole viewer engine chunk, so
+ * importing the enum would put all of it on the initial load. `satisfies` keeps
+ * the literal checked against the library's own values.
+ */
+const SPREAD_NONE = "none" satisfies `${SpreadMode}` as SpreadMode;
+
+export { ViewerContext, useViewer } from "@app/contexts/viewer/viewerContext";
+export type { ViewerContextType } from "@app/contexts/viewer/viewerContext";
 
 function useImmediateNotifier<Args extends unknown[]>() {
   const callbacksRef = useRef(new Set<(...args: Args) => void>());
@@ -76,146 +87,12 @@ function useImmediateNotifier<Args extends unknown[]>() {
   return { register, trigger };
 }
 
-/**
- * ViewerContext provides a unified interface to EmbedPDF functionality.
- *
- * Architecture:
- * - Bridges store their own state locally and register with this context
- * - Context provides read-only access to bridge state via getter functions
- * - Actions call EmbedPDF APIs directly through bridge references
- * - No circular dependencies - bridges don't call back into this context
- */
-export interface ViewerContextType {
-  // UI state managed by this context
-  isThumbnailSidebarVisible: boolean;
-  toggleThumbnailSidebar: () => void;
-  isBookmarkSidebarVisible: boolean;
-  toggleBookmarkSidebar: () => void;
-  isAttachmentSidebarVisible: boolean;
-  toggleAttachmentSidebar: () => void;
-  isLayerSidebarVisible: boolean;
-  toggleLayerSidebar: () => void;
-  hasLayers: boolean;
-  setHasLayers: (value: boolean) => void;
-  isCommentsSidebarVisible: boolean;
-  setCommentsSidebarVisible: (visible: boolean) => void;
-  toggleCommentsSidebar: () => void;
-
-  /** Request focus or highlight of a comment card in the sidebar (opens sidebar, then scrolls + flashes or focuses input). */
-  highlightCommentRequest: {
-    documentId: string;
-    pageIndex: number;
-    annotationId: string;
-    action: "focus" | "highlight";
-  } | null;
-  requestCommentFocus: (
-    documentId: string,
-    pageIndex: number,
-    annotationId: string,
-    hasContent: boolean,
-  ) => void;
-  clearHighlightCommentRequest: () => void;
-
-  // Search interface visibility
-  isSearchInterfaceVisible: boolean;
-  searchInterfaceActions: {
-    open: () => void;
-    close: () => void;
-    toggle: () => void;
-  };
-
-  // Annotation visibility toggle
-  isAnnotationsVisible: boolean;
-  toggleAnnotationsVisibility: () => void;
-
-  // Annotation/drawing mode for viewer
-  isAnnotationMode: boolean;
-  setAnnotationMode: (enabled: boolean) => void;
-
-  // Active file tracking — ID is the stable source of truth; index is derived from it
-  activeFileId: string | null;
-  setActiveFileId: (id: string | null) => void;
-  activeFileIndex: number;
-  setActiveFileIndex: (index: number) => void;
-
-  // State getters - read current state from bridges
-  getScrollState: () => ScrollState;
-  getZoomState: () => ZoomState;
-  getPanState: () => PanState;
-  getSelectionState: () => SelectionState;
-  getSpreadState: () => SpreadState;
-  getRotationState: () => RotationState;
-  getSearchState: () => SearchState;
-  getThumbnailAPI: () => ThumbnailAPIWrapper | null;
-  getExportState: () => ExportState;
-  getBookmarkState: () => BookmarkState;
-  hasBookmarkSupport: () => boolean;
-  getAttachmentState: () => AttachmentState;
-  hasAttachmentSupport: () => boolean;
-  getDocumentPermissions: () => DocumentPermissionsState;
-  hasPermission: (flag: PdfPermissionFlag) => boolean;
-
-  // Immediate update callbacks
-  registerImmediateZoomUpdate: (
-    callback: (percent: number) => void,
-  ) => () => void;
-  registerImmediateScrollUpdate: (
-    callback: (currentPage: number, totalPages: number) => void,
-  ) => () => void;
-  registerImmediateSpreadUpdate: (
-    callback: (mode: SpreadMode, isDualPage: boolean) => void,
-  ) => () => void;
-  registerImmediatePanUpdate: (
-    callback: (isPanning: boolean) => void,
-  ) => () => void;
-
-  // Internal - for bridges to trigger immediate updates
-  triggerImmediateScrollUpdate: (
-    currentPage: number,
-    totalPages: number,
-  ) => void;
-  triggerImmediateZoomUpdate: (zoomPercent: number) => void;
-  triggerImmediateSpreadUpdate: (
-    mode: SpreadMode,
-    isDualPage?: boolean,
-  ) => void;
-  triggerImmediatePanUpdate: (isPanning: boolean) => void;
-
-  // Action handlers - call EmbedPDF APIs directly
-  scrollActions: ScrollActions;
-  zoomActions: ZoomActions;
-  panActions: PanActions;
-  selectionActions: SelectionActions;
-  spreadActions: SpreadActions;
-  rotationActions: RotationActions;
-  searchActions: SearchActions;
-  exportActions: ExportActions;
-  bookmarkActions: BookmarkActions;
-  attachmentActions: AttachmentActions;
-  printActions: PrintActions;
-
-  // Bridge registration - internal use by bridges
-  registerBridge: <K extends BridgeKey>(
-    type: K,
-    ref: BridgeRef<BridgeStateMap[K], BridgeApiMap[K]> | null,
-  ) => void;
-
-  // Save changes function - registered by EmbedPdfViewer
-  applyChanges: (() => Promise<void>) | null;
-  setApplyChanges: (fn: (() => Promise<void>) | null) => void;
-
-  // PDF page color rendering mode (viewer-only, never modifies the PDF)
-  pdfRenderMode: PdfRenderMode;
-  cyclePdfRenderMode: () => void;
-}
-
-export const ViewerContext = createContext<ViewerContextType | null>(null);
-
 interface ViewerProviderProps {
   children: ReactNode;
 }
 
 export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
+  const { t } = useTranslation();
   // UI state - only state directly managed by this context
   const [isThumbnailSidebarVisible, setIsThumbnailSidebarVisible] =
     useState(false);
@@ -239,33 +116,36 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
 
   // activeFileIndex is derived from activeFileId so they can never desync.
-  // ViewerProvider sits inside FileContextProvider so useFileState is valid here.
-  const { selectors, state } = useFileState();
+  // ViewerProvider sits inside FileContextProvider so these hooks are valid here.
+  const selectors = useFileSelectors();
+  const selectorsRef = useRef(selectors);
+  const tRef = useRef(t);
+  const activeFileIdRef = useRef(activeFileId);
+  // Updated after commit, not during render: a concurrent render React abandons
+  // would otherwise leave the callbacks reading values that were never shown.
+  useLayoutEffect(() => {
+    selectorsRef.current = selectors;
+    tRef.current = t;
+    activeFileIdRef.current = activeFileId;
+  }, [selectors, t, activeFileId]);
+  const fileIds = useFileSelector((s) => s.files.ids);
 
   // Clear activeFileId when its file is removed from the workbench.
   // Dep on state.files.ids so the effect re-runs on every add/remove.
   useEffect(() => {
     if (!activeFileId) return;
-    const stillInWorkbench = state.files.ids.some(
+    const stillInWorkbench = fileIds.some(
       (id) => (id as string) === activeFileId,
     );
     if (!stillInWorkbench) setActiveFileId(null);
-  }, [activeFileId, state.files.ids]);
+  }, [activeFileId, fileIds]);
 
-  const activeFileIndex = useMemo(() => {
-    if (!activeFileId) return 0;
-    const files = selectors.getFiles();
-    const idx = files.findIndex((f) => f.fileId === activeFileId);
-    return idx >= 0 ? idx : 0;
-  }, [activeFileId, selectors]);
-  const setActiveFileIndex = useCallback(
-    (index: number) => {
-      const files = selectors.getFiles();
-      const file = files[index];
-      if (file && isStirlingFile(file)) setActiveFileId(file.fileId);
-    },
-    [selectors],
-  );
+  const activeFileIndex = useFileIndex(activeFileId);
+  const setActiveFileIndex = useCallback((index: number) => {
+    const files = selectorsRef.current.getFiles();
+    const file = files[index];
+    if (file && isStirlingFile(file)) setActiveFileId(file.fileId);
+  }, []);
   const [pdfRenderMode, setPdfRenderModeState] = useState<PdfRenderMode>(() =>
     preferencesService.getPreference("pdfRenderMode"),
   );
@@ -305,6 +185,10 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
     register: registerImmediatePanUpdate,
     trigger: triggerImmediatePanInternal,
   } = useImmediateNotifier<[boolean]>();
+  const {
+    register: registerImmediateRotationUpdate,
+    trigger: triggerImmediateRotationInternal,
+  } = useImmediateNotifier<[number]>();
 
   const triggerImmediateZoomUpdate = useCallback(
     (percent: number) => {
@@ -321,7 +205,7 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
   );
 
   const triggerImmediateSpreadUpdate = useCallback(
-    (mode: SpreadMode, isDualPage: boolean = mode !== SpreadMode.None) => {
+    (mode: SpreadMode, isDualPage: boolean = mode !== SPREAD_NONE) => {
       triggerImmediateSpreadInternal(mode, isDualPage);
     },
     [triggerImmediateSpreadInternal],
@@ -334,6 +218,13 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
     [triggerImmediatePanInternal],
   );
 
+  const triggerImmediateRotationUpdate = useCallback(
+    (rotation: number) => {
+      triggerImmediateRotationInternal(rotation);
+    },
+    [triggerImmediateRotationInternal],
+  );
+
   const registerBridge = useCallback(
     <K extends BridgeKey>(
       type: K,
@@ -344,29 +235,29 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
     [],
   );
 
-  const toggleThumbnailSidebar = () => {
+  const toggleThumbnailSidebar = useCallback(() => {
     setIsThumbnailSidebarVisible((prev) => !prev);
-  };
+  }, []);
 
-  const toggleBookmarkSidebar = () => {
+  const toggleBookmarkSidebar = useCallback(() => {
     setIsBookmarkSidebarVisible((prev) => !prev);
-  };
+  }, []);
 
-  const toggleAttachmentSidebar = () => {
+  const toggleAttachmentSidebar = useCallback(() => {
     setIsAttachmentSidebarVisible((prev) => !prev);
-  };
+  }, []);
 
-  const toggleLayerSidebar = () => {
+  const toggleLayerSidebar = useCallback(() => {
     setIsLayerSidebarVisible((prev) => !prev);
-  };
+  }, []);
 
-  const setCommentsSidebarVisible = (visible: boolean) => {
+  const setCommentsSidebarVisible = useCallback((visible: boolean) => {
     setIsCommentsSidebarVisible(visible);
-  };
+  }, []);
 
-  const toggleCommentsSidebar = () => {
+  const toggleCommentsSidebar = useCallback(() => {
     setIsCommentsSidebarVisible((prev) => !prev);
-  };
+  }, []);
 
   const requestCommentFocus = useCallback(
     (
@@ -390,19 +281,22 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
     setHighlightCommentRequest(null);
   }, []);
 
-  const searchInterfaceActions = {
-    open: () => setSearchInterfaceVisible(true),
-    close: () => setSearchInterfaceVisible(false),
-    toggle: () => setSearchInterfaceVisible((prev) => !prev),
-  };
+  const searchInterfaceActions = useMemo(
+    () => ({
+      open: () => setSearchInterfaceVisible(true),
+      close: () => setSearchInterfaceVisible(false),
+      toggle: () => setSearchInterfaceVisible((prev) => !prev),
+    }),
+    [],
+  );
 
-  const toggleAnnotationsVisibility = () => {
+  const toggleAnnotationsVisibility = useCallback(() => {
     setIsAnnotationsVisible((prev) => !prev);
-  };
+  }, []);
 
-  const setAnnotationMode = (enabled: boolean) => {
+  const setAnnotationMode = useCallback((enabled: boolean) => {
     setIsAnnotationModeState(enabled);
-  };
+  }, []);
 
   const cyclePdfRenderMode = useCallback(() => {
     setPdfRenderModeState((prev) => {
@@ -414,54 +308,54 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
   }, []);
 
   // State getters - read from bridge refs
-  const getScrollState = (): ScrollState => {
+  const getScrollState = useCallback((): ScrollState => {
     return (
       bridgeRefs.current.scroll?.state || { currentPage: 1, totalPages: 0 }
     );
-  };
+  }, []);
 
-  const getZoomState = (): ZoomState => {
+  const getZoomState = useCallback((): ZoomState => {
     return (
       bridgeRefs.current.zoom?.state || { currentZoom: 1.4, zoomPercent: 140 }
     );
-  };
+  }, []);
 
-  const getPanState = (): PanState => {
+  const getPanState = useCallback((): PanState => {
     return bridgeRefs.current.pan?.state || { isPanning: false };
-  };
+  }, []);
 
-  const getSelectionState = (): SelectionState => {
+  const getSelectionState = useCallback((): SelectionState => {
     return bridgeRefs.current.selection?.state || { hasSelection: false };
-  };
+  }, []);
 
-  const getSpreadState = (): SpreadState => {
+  const getSpreadState = useCallback((): SpreadState => {
     return (
       bridgeRefs.current.spread?.state || {
-        spreadMode: SpreadMode.None,
+        spreadMode: SPREAD_NONE,
         isDualPage: false,
       }
     );
-  };
+  }, []);
 
-  const getRotationState = (): RotationState => {
+  const getRotationState = useCallback((): RotationState => {
     return bridgeRefs.current.rotation?.state || { rotation: 0 };
-  };
+  }, []);
 
-  const getSearchState = (): SearchState => {
+  const getSearchState = useCallback((): SearchState => {
     return (
       bridgeRefs.current.search?.state || { results: null, activeIndex: 0 }
     );
-  };
+  }, []);
 
-  const getThumbnailAPI = () => {
+  const getThumbnailAPI = useCallback(() => {
     return bridgeRefs.current.thumbnail?.api || null;
-  };
+  }, []);
 
-  const getExportState = (): ExportState => {
+  const getExportState = useCallback((): ExportState => {
     return bridgeRefs.current.export?.state || { canExport: false };
-  };
+  }, []);
 
-  const getBookmarkState = (): BookmarkState => {
+  const getBookmarkState = useCallback((): BookmarkState => {
     return (
       bridgeRefs.current.bookmark?.state || {
         bookmarks: null,
@@ -469,11 +363,14 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
         error: null,
       }
     );
-  };
+  }, []);
 
-  const hasBookmarkSupport = () => Boolean(bridgeRefs.current.bookmark);
+  const hasBookmarkSupport = useCallback(
+    () => Boolean(bridgeRefs.current.bookmark),
+    [],
+  );
 
-  const getAttachmentState = (): AttachmentState => {
+  const getAttachmentState = useCallback((): AttachmentState => {
     return (
       bridgeRefs.current.attachment?.state || {
         attachments: null,
@@ -481,11 +378,14 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
         error: null,
       }
     );
-  };
+  }, []);
 
-  const hasAttachmentSupport = () => Boolean(bridgeRefs.current.attachment);
+  const hasAttachmentSupport = useCallback(
+    () => Boolean(bridgeRefs.current.attachment),
+    [],
+  );
 
-  const getDocumentPermissions = (): DocumentPermissionsState => {
+  const getDocumentPermissions = useCallback((): DocumentPermissionsState => {
     return (
       bridgeRefs.current.permissions?.state || {
         isEncrypted: false,
@@ -501,9 +401,9 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
         canPrintHighQuality: true,
       }
     );
-  };
+  }, []);
 
-  const hasPermission = (flag: PdfPermissionFlag): boolean => {
+  const hasPermission = useCallback((flag: PdfPermissionFlag): boolean => {
     const api = bridgeRefs.current.permissions?.api;
     if (api?.hasPermission) {
       return api.hasPermission(flag);
@@ -515,124 +415,223 @@ export const ViewerProvider: React.FC<ViewerProviderProps> = ({ children }) => {
       );
     }
     return true;
-  };
+  }, []);
 
   // Action handlers - call APIs directly
-  const {
-    scrollActions,
-    zoomActions,
-    panActions,
-    selectionActions,
-    spreadActions,
-    rotationActions,
-    searchActions,
-    exportActions,
-    bookmarkActions,
-    attachmentActions,
-    printActions,
-  } = createViewerActions({
-    registry: bridgeRefs,
-    getScrollState,
-    getZoomState,
-    triggerImmediateZoomUpdate,
-  });
+  const actionsBundle = useMemo(
+    () =>
+      createViewerActions({
+        registry: bridgeRefs,
+        getScrollState,
+        getZoomState,
+        triggerImmediateZoomUpdate,
+      }),
+    [getScrollState, getZoomState, triggerImmediateZoomUpdate],
+  );
 
-  const value: ViewerContextType = {
-    // UI state
-    isThumbnailSidebarVisible,
-    toggleThumbnailSidebar,
-    isBookmarkSidebarVisible,
-    toggleBookmarkSidebar,
-    isAttachmentSidebarVisible,
-    toggleAttachmentSidebar,
-    isLayerSidebarVisible,
-    toggleLayerSidebar,
-    hasLayers,
-    setHasLayers,
-    isCommentsSidebarVisible,
-    setCommentsSidebarVisible,
-    toggleCommentsSidebar,
-    highlightCommentRequest,
-    requestCommentFocus,
-    clearHighlightCommentRequest,
+  // Printing is an exit path, so a "run on export" policy must enforce here too.
+  // Enforce the current file through the same path export uses: when a policy
+  // rewrites it, that path versions the in-editor file to the enforced output
+  // and marks it enforced, so a follow-up print of the unedited result prints
+  // it as-is instead of re-running the (non-idempotent) policy. Ask the user to
+  // review the updated doc before printing again, rather than printing bytes
+  // they haven't seen. With no active export policy this is a no-op and print
+  // runs straight away.
+  const printWithPolicy = useCallback(async () => {
+    // Through a ref: switching the active file must not rebuild this callback,
+    // or the memoised actions bundle and every effect depending on it churn.
+    const currentActiveFileId = activeFileIdRef.current;
+    const file = currentActiveFileId
+      ? selectorsRef.current.getFiles([currentActiveFileId as FileId])[0]
+      : undefined;
+    if (!currentActiveFileId || !file) {
+      actionsBundle.printActions.print();
+      return;
+    }
+    const [enforced] = await enforceExportPolicies(
+      [file],
+      [currentActiveFileId],
+      "print",
+    );
+    // Original file back means no policy rewrote it (no active policy, already
+    // enforced, or graceful failure fallback) — nothing new to review, print it.
+    if (!enforced || enforced === file) {
+      actionsBundle.printActions.print();
+      return;
+    }
+    alert({
+      alertType: "warning",
+      title: tRef.current("policies.enforcement.printPolicyAppliedTitle"),
+      body: tRef.current("policies.enforcement.printPolicyAppliedBody"),
+    });
+  }, [actionsBundle.printActions]);
 
-    // Search interface
-    isSearchInterfaceVisible,
-    searchInterfaceActions,
+  const enforcedPrintActions = useMemo<PrintActions>(
+    () => ({ print: printWithPolicy }),
+    [printWithPolicy],
+  );
 
-    // Annotation controls
-    isAnnotationsVisible,
-    toggleAnnotationsVisibility,
-    isAnnotationMode,
-    setAnnotationMode,
+  const zoomRestorePendingRef = useRef(false);
+  const [zoomRestoreSettledTick, setZoomRestoreSettledTick] = useState(0);
+  const notifyZoomRestoreSettled = useCallback(() => {
+    setZoomRestoreSettledTick((tick) => tick + 1);
+  }, []);
 
-    // Active file tracking
-    activeFileId,
-    setActiveFileId,
-    activeFileIndex,
-    setActiveFileIndex,
+  const value = useMemo<ViewerContextType>(
+    () => ({
+      // UI state
+      isThumbnailSidebarVisible,
+      toggleThumbnailSidebar,
+      isBookmarkSidebarVisible,
+      toggleBookmarkSidebar,
+      isAttachmentSidebarVisible,
+      toggleAttachmentSidebar,
+      isLayerSidebarVisible,
+      toggleLayerSidebar,
+      hasLayers,
+      setHasLayers,
+      isCommentsSidebarVisible,
+      setCommentsSidebarVisible,
+      toggleCommentsSidebar,
+      highlightCommentRequest,
+      requestCommentFocus,
+      clearHighlightCommentRequest,
 
-    // State getters
-    getScrollState,
-    getZoomState,
-    getPanState,
-    getSelectionState,
-    getSpreadState,
-    getRotationState,
-    getSearchState,
-    getThumbnailAPI,
-    getExportState,
-    getBookmarkState,
-    hasBookmarkSupport,
-    getAttachmentState,
-    hasAttachmentSupport,
-    getDocumentPermissions,
-    hasPermission,
+      // Search interface
+      isSearchInterfaceVisible,
+      searchInterfaceActions,
 
-    // Immediate updates
-    registerImmediateZoomUpdate,
-    registerImmediateScrollUpdate,
-    registerImmediateSpreadUpdate,
-    registerImmediatePanUpdate,
-    triggerImmediateScrollUpdate,
-    triggerImmediateZoomUpdate,
-    triggerImmediateSpreadUpdate,
-    triggerImmediatePanUpdate,
+      // Annotation controls
+      isAnnotationsVisible,
+      toggleAnnotationsVisibility,
+      isAnnotationMode,
+      setAnnotationMode,
 
-    // Actions
-    scrollActions,
-    zoomActions,
-    panActions,
-    selectionActions,
-    spreadActions,
-    rotationActions,
-    searchActions,
-    exportActions,
-    bookmarkActions,
-    attachmentActions,
-    printActions,
+      // Active file tracking
+      activeFileId,
+      setActiveFileId,
+      activeFileIndex,
+      setActiveFileIndex,
 
-    // Bridge registration
-    registerBridge,
+      // State getters
+      getScrollState,
+      getZoomState,
+      getPanState,
+      getSelectionState,
+      getSpreadState,
+      getRotationState,
+      getSearchState,
+      getThumbnailAPI,
+      getExportState,
+      getBookmarkState,
+      hasBookmarkSupport,
+      getAttachmentState,
+      hasAttachmentSupport,
+      getDocumentPermissions,
+      hasPermission,
 
-    // Apply changes
-    applyChanges,
-    setApplyChanges,
+      // Immediate updates
+      registerImmediateZoomUpdate,
+      registerImmediateScrollUpdate,
+      registerImmediateSpreadUpdate,
+      registerImmediatePanUpdate,
+      registerImmediateRotationUpdate,
+      triggerImmediateScrollUpdate,
+      triggerImmediateZoomUpdate,
+      triggerImmediateSpreadUpdate,
+      zoomRestorePendingRef,
+      zoomRestoreSettledTick,
+      notifyZoomRestoreSettled,
+      triggerImmediatePanUpdate,
+      triggerImmediateRotationUpdate,
 
-    // PDF page rendering mode
-    pdfRenderMode,
-    cyclePdfRenderMode,
-  };
+      // Actions
+      scrollActions: actionsBundle.scrollActions,
+      zoomActions: actionsBundle.zoomActions,
+      panActions: actionsBundle.panActions,
+      selectionActions: actionsBundle.selectionActions,
+      spreadActions: actionsBundle.spreadActions,
+      rotationActions: actionsBundle.rotationActions,
+      searchActions: actionsBundle.searchActions,
+      exportActions: actionsBundle.exportActions,
+      bookmarkActions: actionsBundle.bookmarkActions,
+      attachmentActions: actionsBundle.attachmentActions,
+      printActions: enforcedPrintActions,
+
+      // Bridge registration
+      registerBridge,
+
+      // Apply changes
+      applyChanges,
+      setApplyChanges,
+
+      // PDF page rendering mode
+      pdfRenderMode,
+      cyclePdfRenderMode,
+    }),
+    [
+      isThumbnailSidebarVisible,
+      toggleThumbnailSidebar,
+      isBookmarkSidebarVisible,
+      toggleBookmarkSidebar,
+      isAttachmentSidebarVisible,
+      toggleAttachmentSidebar,
+      isLayerSidebarVisible,
+      toggleLayerSidebar,
+      hasLayers,
+      isCommentsSidebarVisible,
+      setCommentsSidebarVisible,
+      toggleCommentsSidebar,
+      highlightCommentRequest,
+      requestCommentFocus,
+      clearHighlightCommentRequest,
+      isSearchInterfaceVisible,
+      searchInterfaceActions,
+      isAnnotationsVisible,
+      toggleAnnotationsVisibility,
+      isAnnotationMode,
+      setAnnotationMode,
+      activeFileId,
+      activeFileIndex,
+      setActiveFileIndex,
+      getScrollState,
+      getZoomState,
+      getPanState,
+      getSelectionState,
+      getSpreadState,
+      getRotationState,
+      getSearchState,
+      getThumbnailAPI,
+      getExportState,
+      getBookmarkState,
+      hasBookmarkSupport,
+      getAttachmentState,
+      hasAttachmentSupport,
+      getDocumentPermissions,
+      hasPermission,
+      registerImmediateZoomUpdate,
+      registerImmediateScrollUpdate,
+      registerImmediateSpreadUpdate,
+      registerImmediatePanUpdate,
+      registerImmediateRotationUpdate,
+      triggerImmediateScrollUpdate,
+      triggerImmediateZoomUpdate,
+      triggerImmediateSpreadUpdate,
+      zoomRestoreSettledTick,
+      notifyZoomRestoreSettled,
+      triggerImmediatePanUpdate,
+      triggerImmediateRotationUpdate,
+      actionsBundle,
+      enforcedPrintActions,
+      registerBridge,
+      applyChanges,
+      setApplyChanges,
+      pdfRenderMode,
+      cyclePdfRenderMode,
+    ],
+  );
 
   return (
     <ViewerContext.Provider value={value}>{children}</ViewerContext.Provider>
   );
-};
-
-export const useViewer = (): ViewerContextType => {
-  const context = useContext(ViewerContext);
-  if (!context) {
-    throw new Error("useViewer must be used within a ViewerProvider");
-  }
-  return context;
 };

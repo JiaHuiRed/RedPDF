@@ -1,7 +1,8 @@
 import { oauthProviders } from "@app/constants/authProviders";
 import { useTranslation } from "@app/hooks/useTranslation";
 import { Tooltip } from "@app/components/shared/Tooltip";
-import { oauthIconUrl } from "@shared/auth/ui/oauthIcons";
+import { Button } from "@app/ui/Button";
+import { ProviderMark } from "@app/auth/ui/ProviderMark";
 
 // Exports for compatibility with proprietary code
 export const DEBUG_SHOW_ALL_PROVIDERS = false;
@@ -35,21 +36,34 @@ export default function OAuthButtons({
         {oauthProviders.map((p) => (
           <Tooltip
             key={p.id}
-            content={`${t("login.signInWith", "Sign in with")} ${p.label}`}
+            content={t(
+              "login.signInWithProvider",
+              "Sign in with {{provider}}",
+              {
+                provider: p.label,
+              },
+            )}
             position="top"
           >
-            <button
+            <Button
+              variant="secondary"
               onClick={() => onProviderClick(p.id as "github" | "google")}
               disabled={isSubmitting || p.isDisabled}
               className="oauth-button-icon"
-              aria-label={`${t("login.signInWith", "Sign in with")} ${p.label}`}
+              aria-label={t(
+                "login.signInWithProvider",
+                "Sign in with {{provider}}",
+                {
+                  provider: p.label,
+                },
+              )}
             >
-              <img
-                src={oauthIconUrl(p.file)}
-                alt={p.label}
-                className={`oauth-icon-small ${p.isDisabled ? "opacity-20" : ""}`}
+              <ProviderMark
+                file={p.file}
+                label={p.label}
+                className={`oauth-icon-small oauth-icon--${p.id} ${p.isDisabled ? "opacity-20" : ""}`}
               />
-            </button>
+            </Button>
           </Tooltip>
         ))}
       </div>
@@ -62,21 +76,34 @@ export default function OAuthButtons({
         {oauthProviders.map((p) => (
           <Tooltip
             key={p.id}
-            content={`${t("login.signInWith", "Sign in with")} ${p.label}`}
+            content={t(
+              "login.signInWithProvider",
+              "Sign in with {{provider}}",
+              {
+                provider: p.label,
+              },
+            )}
             position="top"
           >
-            <button
+            <Button
+              variant="secondary"
               onClick={() => onProviderClick(p.id as "github" | "google")}
               disabled={isSubmitting || p.isDisabled}
               className="oauth-button-grid"
-              aria-label={`${t("login.signInWith", "Sign in with")} ${p.label}`}
+              aria-label={t(
+                "login.signInWithProvider",
+                "Sign in with {{provider}}",
+                {
+                  provider: p.label,
+                },
+              )}
             >
-              <img
-                src={oauthIconUrl(p.file)}
-                alt={p.label}
-                className={`oauth-icon-medium ${p.isDisabled ? "opacity-20" : ""}`}
+              <ProviderMark
+                file={p.file}
+                label={p.label}
+                className={`oauth-icon-medium oauth-icon--${p.id} ${p.isDisabled ? "opacity-20" : ""}`}
               />
-            </button>
+            </Button>
           </Tooltip>
         ))}
       </div>
@@ -87,18 +114,19 @@ export default function OAuthButtons({
     return (
       <div className="oauth-container-fullwidth">
         {oauthProviders.map((p) => (
-          <button
+          <Button
             key={p.id}
+            variant="secondary"
             onClick={() => onProviderClick(p.id as "github" | "google")}
             disabled={isSubmitting || p.isDisabled}
             className="oauth-button-fullwidth"
             title={p.label}
           >
             <span className="oauth-btn-group">
-              <img
-                src={oauthIconUrl(p.file)}
-                alt={p.label}
-                className={`oauth-icon-medium ${p.isDisabled ? "opacity-20" : ""}`}
+              <ProviderMark
+                file={p.file}
+                label={p.label}
+                className={`oauth-icon-medium oauth-icon--${p.id} ${p.isDisabled ? "opacity-20" : ""}`}
                 style={{ marginRight: "0.5rem", flexShrink: 0 }}
               />
               <span className="oauth-btn-label">
@@ -106,7 +134,7 @@ export default function OAuthButtons({
                 {p.label}
               </span>
             </span>
-          </button>
+          </Button>
         ))}
       </div>
     );
@@ -115,20 +143,21 @@ export default function OAuthButtons({
   return (
     <div className="oauth-container-vertical">
       {oauthProviders.map((p) => (
-        <button
+        <Button
           key={p.id}
+          variant="secondary"
           onClick={() => onProviderClick(p.id as "github" | "google")}
           disabled={isSubmitting || p.isDisabled}
           className="oauth-button-vertical"
           title={p.label}
         >
-          <img
-            src={oauthIconUrl(p.file)}
-            alt={p.label}
-            className={`oauth-icon-tiny ${p.isDisabled ? "opacity-20" : ""}`}
+          <ProviderMark
+            file={p.file}
+            label={p.label}
+            className={`oauth-icon-tiny oauth-icon--${p.id} ${p.isDisabled ? "opacity-20" : ""}`}
           />
           {p.label}
-        </button>
+        </Button>
       ))}
     </div>
   );

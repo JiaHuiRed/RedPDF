@@ -1,31 +1,40 @@
-import { useEffect, useState, Suspense, lazy } from "react";
-import { Box, Loader, Center } from "@mantine/core";
+import { useState, useEffect, useRef, Suspense, lazy } from "react";
+import { useTranslation } from "react-i18next";
+import { Icon } from "@app/ui/Icon";
+import { Box, Loader, Center, Stack, Text } from "@mantine/core";
+import { Button } from "@app/ui/Button";
 import { useToolWorkflow } from "@app/contexts/ToolWorkflowContext";
 import { useFileHandler } from "@app/hooks/useFileHandler";
-import { useFileState } from "@app/contexts/FileContext";
+import { useAllFiles } from "@app/contexts/FileContext";
 import {
   useNavigationState,
   useNavigationActions,
 } from "@app/contexts/NavigationContext";
 import { isBaseWorkbench } from "@app/types/workbench";
 import { VIEWER_SUPPORTED_EXTENSIONS } from "@app/utils/fileUtils";
-import { useAppConfig } from "@app/contexts/AppConfigContext";
-import { useCookieConsent } from "@app/hooks/useCookieConsent";
+import { useIsPhone } from "@app/hooks/useIsMobile";
 import styles from "@app/components/layout/Workbench.module.css";
 
 import WorkbenchBar from "@app/components/shared/WorkbenchBar";
+import { useWorkbenchTakeover } from "@app/components/layout/WorkbenchTakeover";
+import {
+  useIsWorkbenchFileDragOver,
+  useWorkbenchFileDrop,
+} from "@app/components/layout/useWorkbenchFileDrop";
+import { useTitleBarStrip } from "@app/contexts/TitleBarStripContext";
+import WorkbenchFloatingSearch from "@app/components/shared/WorkbenchFloatingSearch";
 import LandingPage from "@app/components/shared/LandingPage";
 import DismissAllErrorsButton from "@app/components/shared/DismissAllErrorsButton";
-import { ChatFAB } from "@app/components/chat/ChatFAB";
+import { NotificationBell } from "@app/components/notifications/NotificationBell";
 
 // Workbench panels are loaded on demand. Viewer pulls in pdfjs-dist and the
-// full @embedpdf plugin set; FileEditor/PageEditor are only needed once a file
+// full @embedpdf plugin set; FileEditor/PageTracks are only needed once a file
 // is open. Lazy-loading keeps all of that out of the initial bundle.
-const FileEditor = lazy(() => import("@app/components/fileEditor/FileEditor"));
-const PageEditor = lazy(() => import("@app/components/pageEditor/PageEditor"));
-const PageEditorControls = lazy(
-  () => import("@app/components/pageEditor/PageEditorControls"),
+const SigningWorkspace = lazy(
+  () => import("@app/components/shared/signing/SigningWorkspace"),
 );
+const FileEditor = lazy(() => import("@app/components/fileEditor/FileEditor"));
+const PageTracks = lazy(() => import("@app/components/pageTracks/PageTracks"));
 const Viewer = lazy(() => import("@app/components/viewer/Viewer"));
 const FileManagerView = lazy(
   () => import("@app/components/filesPage/FileManagerView"),
@@ -33,29 +42,22 @@ const FileManagerView = lazy(
 
 // No props needed - component uses contexts directly
 export default function Workbench() {
-  const { config } = useAppConfig();
-
-  // The consent banner used to be initialised by the footer; the legal links
-  // now live in Settings → Legal, so the workbench owns the banner lifecycle.
-  useCookieConsent({ analyticsEnabled: config?.enableAnalytics === true });
+  // A flow that owns the canvas outright (desktop onboarding's Downloads sweep).
+  // Null in every other case, which is every case in core.
+  const takeover = useWorkbenchTakeover();
+  const strip = useTitleBarStrip();
 
   // Use context-based hooks to eliminate all prop drilling
-  const { selectors } = useFileState();
+  const { files: activeFiles, fileIds } = useAllFiles();
   const { workbench: currentView } = useNavigationState();
   const { actions: navActions } = useNavigationActions();
   const setCurrentView = navActions.setWorkbench;
-  const activeFiles = selectors.getFiles();
-  const {
-    previewFile,
-    pageEditorFunctions,
-    sidebarsVisible,
-    setPreviewFile,
-    setPageEditorFunctions,
-    setSidebarsVisible,
-    customWorkbenchViews,
-  } = useToolWorkflow();
+  const { previewFile, setPreviewFile, customWorkbenchViews, readerMode } =
+    useToolWorkflow();
 
   const { handleToolSelect } = useToolWorkflow();
+  // Below this width the rail, and the bell it carries, is gone.
+  const isPhone = useIsPhone();
 
   // Get navigation state - this is the source of truth
   const { selectedTool: selectedToolId } = useNavigationState();
@@ -65,18 +67,55 @@ export default function Workbench() {
   const selectedTool = selectedToolId ? toolRegistry[selectedToolId] : null;
   const { addFiles } = useFileHandler();
   const hasFiles = activeFiles.length > 0;
-  // Custom workbench views (e.g. Watched Folders) manage their own content and may
-  // have no workbench files, but still need the bar's view switcher so users can
-  // navigate back out.
-  const isCustomViewActive = !isBaseWorkbench(currentView);
+  const { t } = useTranslation();
 
-  // Enable bar transitions after first paint so the initial hidden state shows
-  // without animating (landing page on load shouldn't animate the bar up).
-  const [barTransitionEnabled, setBarTransitionEnabled] = useState(false);
+  // Every view takes file drops on the whole canvas, not just the content it
+  // happens to render. Views that do something of their own with a dropped file
+  // (the file library, the PDF text editor) stop the events reaching here.
+  // The file sidebar shares this drop target and its overlay.
+  const acceptsFileDrops = !takeover;
+  const dropHandlers = useWorkbenchFileDrop(acceptsFileDrops);
+  const isFileDragOver = useIsWorkbenchFileDragOver() && acceptsFileDrops;
+
+  // The viewer's tool row can be retracted to give the document more height.
+  // State lives here (not in WorkbenchBar) so the reopen tab can hang below the
+  // bar, outside the bar's overflow-clipped wrapper. Scoped to the viewer.
+  const [viewerToolbarCollapsed, setViewerToolbarCollapsed] = useState(false);
+  const showReopenTab = currentView === "viewer" && viewerToolbarCollapsed;
+
+  // The WorkbenchBar carries file-scoped actions, so it only shows once a file
+  // is open or a custom view supplies content; otherwise the search floats.
+  const activeCustomView = customWorkbenchViews.find(
+    (v) => v.workbenchId === currentView,
+  );
+  const topControlsAvailable =
+    currentView !== "signing" && !activeCustomView?.hideTopControls;
+  const hasWorkbenchContent =
+    hasFiles ||
+    fileIds.length > 0 ||
+    !isBaseWorkbench(currentView) ||
+    // The library browses stored files, so it has content of its own with none open.
+    currentView === "myFiles" ||
+    currentView === "signing";
+  // Reading hides the bar; the rail's Reader entry is the way back. A takeover hides
+  // the switcher and search too: both navigate away from a flow that must finish.
+  const showWorkbenchBar =
+    topControlsAvailable && hasWorkbenchContent && !readerMode && !takeover;
+  const showFloatingSearch =
+    topControlsAvailable &&
+    !hasWorkbenchContent &&
+    !readerMode &&
+    !takeover &&
+    !strip.enabled;
+
+  // On the transition, so reading sets the toolbar's start state without locking it.
+  const prevReaderModeRef = useRef(readerMode);
   useEffect(() => {
-    const raf = requestAnimationFrame(() => setBarTransitionEnabled(true));
-    return () => cancelAnimationFrame(raf);
-  }, []);
+    if (readerMode !== prevReaderModeRef.current) {
+      setViewerToolbarCollapsed(readerMode);
+      prevReaderModeRef.current = readerMode;
+    }
+  }, [readerMode]);
 
   const handlePreviewClose = () => {
     setPreviewFile(null);
@@ -97,6 +136,10 @@ export default function Workbench() {
   };
 
   const renderMainContent = () => {
+    // Ahead of every view check: a takeover replaces the canvas whatever the current
+    // workbench happens to be, so navigation underneath it cannot surface.
+    if (takeover) return takeover;
+
     // Check if we're showing a custom workbench first
     // Custom workbenches may not require files in FileContext (e.g., sign request workbench)
     if (!isBaseWorkbench(currentView)) {
@@ -109,13 +152,29 @@ export default function Workbench() {
       }
     }
 
-    // The "My Files" workbench is available regardless of whether files are
+    if (currentView === "signing") return <SigningWorkspace />;
+
+    // The file-library workbench is available regardless of whether files are
     // currently loaded into the workbench - it lives on top of the IDB store.
     if (currentView === "myFiles") {
       return <FileManagerView />;
     }
 
     if (activeFiles.length === 0) {
+      // Files are open but their bytes are still loading (a cold PDF engine can
+      // take seconds). Showing the drop zone here reads as "the click did nothing".
+      if (fileIds.length > 0) {
+        return (
+          <Center h="100%" w="100%">
+            <Stack align="center" gap="md">
+              <Loader size="lg" />
+              <Text c="dimmed" size="sm">
+                {t("fileManager.loadingFiles", "Loading files...")}
+              </Text>
+            </Stack>
+          </Center>
+        );
+      }
       return <LandingPage />;
     }
 
@@ -141,52 +200,11 @@ export default function Workbench() {
 
       case "viewer":
         return (
-          <Viewer
-            sidebarsVisible={sidebarsVisible}
-            setSidebarsVisible={setSidebarsVisible}
-            previewFile={previewFile}
-            onClose={handlePreviewClose}
-          />
+          <Viewer previewFile={previewFile} onClose={handlePreviewClose} />
         );
 
       case "pageEditor":
-        return (
-          <div style={{ position: "relative", flex: "1 1 0", height: 0 }}>
-            <PageEditor onFunctionsReady={setPageEditorFunctions} />
-            {pageEditorFunctions && (
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  zIndex: 100,
-                }}
-              >
-                <PageEditorControls
-                  onClosePdf={pageEditorFunctions.closePdf}
-                  onUndo={pageEditorFunctions.handleUndo}
-                  onRedo={pageEditorFunctions.handleRedo}
-                  canUndo={pageEditorFunctions.canUndo}
-                  canRedo={pageEditorFunctions.canRedo}
-                  onRotate={pageEditorFunctions.handleRotate}
-                  onDelete={pageEditorFunctions.handleDelete}
-                  onSplit={pageEditorFunctions.handleSplit}
-                  onSplitAll={pageEditorFunctions.handleSplitAll}
-                  onPageBreak={pageEditorFunctions.handlePageBreak}
-                  onPageBreakAll={pageEditorFunctions.handlePageBreakAll}
-                  onExportAll={pageEditorFunctions.onExportAll}
-                  exportLoading={pageEditorFunctions.exportLoading}
-                  selectionMode={pageEditorFunctions.selectionMode}
-                  selectedPageIds={pageEditorFunctions.selectedPageIds}
-                  displayDocument={pageEditorFunctions.displayDocument}
-                  splitPositions={pageEditorFunctions.splitPositions}
-                  totalPages={pageEditorFunctions.totalPages}
-                />
-              </div>
-            )}
-          </div>
-        );
+        return <PageTracks />;
 
       default:
         return null;
@@ -197,32 +215,59 @@ export default function Workbench() {
     <Box
       className="flex-1 h-full min-w-0 relative flex flex-col"
       data-tour="workbench"
-      style={{ backgroundColor: "var(--bg-background)", minWidth: 0 }}
+      style={{ backgroundColor: "var(--c-bg)", minWidth: 0, minHeight: 0 }}
+      {...dropHandlers}
     >
-      {/* Workbench Bar - animates in/out based on file presence */}
-      {currentView !== "myFiles" &&
-        !customWorkbenchViews.find((v) => v.workbenchId === currentView)
-          ?.hideTopControls && (
-          <div
-            className={styles.workbenchBarWrapper}
-            data-hidden={String(!hasFiles && !isCustomViewActive)}
-            data-no-transition={String(!barTransitionEnabled)}
-          >
+      {isFileDragOver && (
+        <div className={styles.fileDropOverlay} aria-live="polite">
+          <span className={styles.fileDropOverlayIcon}>
+            <Icon name="file-up" size="2.5rem" />
+          </span>
+          {t(
+            "workbench.dropOverlay",
+            "Drop files to add them to the workbench",
+          )}
+        </div>
+      )}
+      {/* Phone only: above that the rail carries the bell, and here no bar does. */}
+      {isPhone && !showWorkbenchBar && topControlsAvailable && (
+        <div style={{ position: "absolute", top: 12, right: 12, zIndex: 20 }}>
+          <NotificationBell />
+        </div>
+      )}
+
+      {showWorkbenchBar && (
+        <div className={styles.workbenchBarShell}>
+          <div className={styles.workbenchBarWrapper}>
             <div className={styles.workbenchBarInner}>
               <WorkbenchBar
                 currentView={currentView}
                 setCurrentView={setCurrentView}
                 hasFiles={hasFiles}
+                viewerToolbarCollapsed={viewerToolbarCollapsed}
+                onCollapseViewerToolbar={setViewerToolbarCollapsed}
               />
             </div>
           </div>
-        )}
+          {/* Reopen tab for the retracted viewer tool row. */}
+          {showReopenTab && (
+            <Button
+              type="button"
+              variant="quiet"
+              className={styles.workbenchBarReopenTab}
+              onClick={() => setViewerToolbarCollapsed(false)}
+              aria-expanded={false}
+              aria-label={t("workbenchBar.showToolbar", "Show toolbar")}
+              title={t("workbenchBar.showToolbar", "Show toolbar")}
+              leftSection={<Icon name="chevron-down" size={"1rem"} />}
+            />
+          )}
+        </div>
+      )}
+      {showFloatingSearch && <WorkbenchFloatingSearch />}
 
       {/* Dismiss All Errors Button */}
       <DismissAllErrorsButton />
-
-      {/* Floating AI chat button + panel */}
-      <ChatFAB />
 
       {/* Main content area */}
       <Box

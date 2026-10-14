@@ -1,8 +1,8 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Menu, ActionIcon } from "@mantine/core";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-
+import { Menu } from "@mantine/core";
+import { ActionIcon } from "@app/ui/ActionIcon";
+import { Icon } from "@app/ui/Icon";
 export interface OSOption {
   label: string;
   url: string;
@@ -14,6 +14,21 @@ interface DesktopInstallTitleProps {
   osUrl: string;
   osOptions: OSOption[];
   onDownloadUrlChange?: (url: string) => void;
+}
+
+/** Map an OS option to its brand-icon key from its value/label. */
+function osIconKey(option: OSOption): OsIconName | null {
+  const text = `${option.value} ${option.label}`.toLowerCase();
+  if (/(mac|apple|osx|darwin)/.test(text)) return "apple";
+  if (/win/.test(text)) return "windows";
+  if (/linux/.test(text)) return "linux";
+  return null;
+}
+
+type OsIconName = "apple" | "windows" | "linux";
+
+function OsIcon({ os }: { os: OsIconName }) {
+  return <Icon name={os} size={16} />;
 }
 
 export const DesktopInstallTitle: React.FC<DesktopInstallTitleProps> = ({
@@ -50,7 +65,7 @@ export const DesktopInstallTitle: React.FC<DesktopInstallTitleProps> = ({
 
   // If only one option or no options, don't show dropdown
   if (osOptions.length <= 1) {
-    return <div style={{ textAlign: "center", width: "100%" }}>{title}</div>;
+    return <div style={{ width: "100%" }}>{title}</div>;
   }
 
   return (
@@ -58,17 +73,20 @@ export const DesktopInstallTitle: React.FC<DesktopInstallTitleProps> = ({
       style={{
         display: "flex",
         alignItems: "center",
-        justifyContent: "center",
         gap: "0.5rem",
         width: "100%",
       }}
     >
       <span style={{ whiteSpace: "nowrap" }}>{title}</span>
-      <Menu position="bottom" offset={5} zIndex={10000}>
+      <Menu position="bottom-start" offset={5} zIndex={10000}>
         <Menu.Target>
           <ActionIcon
-            variant="transparent"
+            variant="tertiary"
             size="sm"
+            aria-label={t(
+              "onboarding.desktopInstall.selectOs",
+              "Select operating system",
+            )}
             style={{
               background: "transparent",
               border: "none",
@@ -76,23 +94,24 @@ export const DesktopInstallTitle: React.FC<DesktopInstallTitleProps> = ({
               padding: 0,
             }}
           >
-            <ExpandMoreIcon fontSize="small" />
+            <Icon name="chevron-down" size={20} />
           </ActionIcon>
         </Menu.Target>
         <Menu.Dropdown>
           {osOptions.map((option) => {
             const isSelected = option.url === selectedOsUrl;
+            const iconKey = osIconKey(option);
             return (
               <Menu.Item
                 key={option.url}
                 onClick={() => handleOsSelect(option)}
+                leftSection={iconKey ? <OsIcon os={iconKey} /> : undefined}
                 style={{
                   backgroundColor: isSelected
-                    ? "light-dark(var(--mantine-color-blue-1), var(--mantine-color-blue-8))"
+                    ? "var(--c-surface-sunken, #f1f5f9)"
                     : "transparent",
-                  color: isSelected
-                    ? "light-dark(var(--mantine-color-blue-9), var(--mantine-color-white))"
-                    : "inherit",
+                  color: "var(--c-text, #0f172a)",
+                  fontWeight: isSelected ? 600 : 500,
                 }}
               >
                 {option.label}

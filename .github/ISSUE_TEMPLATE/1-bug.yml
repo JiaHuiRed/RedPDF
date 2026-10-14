@@ -45,14 +45,14 @@ body:
     validations:
       required: true
     attributes:
-      label: Version of Stirling-PDF
+      label: Version of RedPDF
       placeholder: e.g., 0.0.2
-      description: What version of Stirling-PDF has the issue?
+      description: What version of RedPDF has the issue?
 
   - type: input
     id: last-working-version
     attributes:
-      label: Last Working Version of Stirling-PDF
+      label: Last Working Version of RedPDF
       placeholder: e.g., 0.0.1
       description: |
         If known, please provide the last version where the issue did not occur. Otherwise, leave blank.
@@ -97,6 +97,13 @@ body:
       label: Additional Information
       description: |
         If you have any additional information that might help us understand and resolve the issue, provide it here.
+
+  - type: textarea
+    id: sample-files
+    attributes:
+      label: Sample Files
+      description: |
+        If possible, attach the PDF or other input files needed to reproduce the issue. Remove any sensitive information before sharing.
 
   - type: markdown
     attributes:

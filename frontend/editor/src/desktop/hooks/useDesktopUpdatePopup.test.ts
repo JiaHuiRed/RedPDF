@@ -9,6 +9,7 @@ const getVersionMock = vi.fn();
 const getUpdateModeMock = vi.fn();
 const canInstallUpdatesMock = vi.fn();
 const getUpdateSummaryMock = vi.fn();
+const getCurrentModeMock = vi.fn();
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (cmd: string, args?: unknown) => invokeMock(cmd, args),
@@ -33,6 +34,12 @@ vi.mock("@app/services/desktopUpdateService", () => ({
   desktopUpdateService: {
     getUpdateMode: () => getUpdateModeMock(),
     canInstallUpdates: () => canInstallUpdatesMock(),
+  },
+}));
+
+vi.mock("@app/services/connectionModeService", () => ({
+  connectionModeService: {
+    getCurrentMode: () => getCurrentModeMock(),
   },
 }));
 
@@ -74,8 +81,11 @@ describe("useDesktopUpdatePopup — auto mode", () => {
     getUpdateModeMock.mockReset();
     canInstallUpdatesMock.mockReset();
     getUpdateSummaryMock.mockReset();
+    getCurrentModeMock.mockReset();
 
-    // Defaults: auto mode, update available, install permitted.
+    // Defaults: local (non-SaaS) connection, auto mode, update available,
+    // install permitted.
+    getCurrentModeMock.mockResolvedValue("local");
     getUpdateModeMock.mockResolvedValue("auto");
     getVersionMock.mockResolvedValue("1.0.0");
     getUpdateSummaryMock.mockResolvedValue({ latest_version: "2.0.0" });
@@ -188,5 +198,38 @@ describe("useDesktopUpdatePopup — auto mode", () => {
     const invocations = invokeMock.mock.calls.map((c) => c[0]);
     expect(invocations).toContain("download_and_install_update");
     expect(invocations).toContain("restart_app");
+  });
+
+  it("still checks and auto-installs in SaaS connection mode", async () => {
+    // The desktop binary is local even when signed in to the cloud, so it must keep updating.
+    getCurrentModeMock.mockResolvedValue("saas");
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "check_for_update") {
+        return Promise.resolve({
+          version: "2.0.0",
+          currentVersion: "1.0.0",
+          releaseNotes: null,
+        });
+      }
+      return Promise.resolve();
+    });
+
+    await runStartup();
+
+    expect(getUpdateModeMock).toHaveBeenCalled();
+    expect(getUpdateSummaryMock).toHaveBeenCalled();
+    const invocations = invokeMock.mock.calls.map((c) => c[0]);
+    expect(invocations).toContain("download_and_install_update");
+    expect(invocations).toContain("restart_app");
+  });
+
+  it("does nothing when the update mode is disabled", async () => {
+    getUpdateModeMock.mockResolvedValue("disabled");
+
+    await runStartup();
+
+    expect(getUpdateSummaryMock).not.toHaveBeenCalled();
+    const invocations = invokeMock.mock.calls.map((c) => c[0]);
+    expect(invocations).not.toContain("download_and_install_update");
   });
 });

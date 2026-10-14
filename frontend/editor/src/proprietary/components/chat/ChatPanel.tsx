@@ -2,37 +2,29 @@ import {
   useMemo,
   useRef,
   useEffect,
+  useLayoutEffect,
   useState,
+  type FocusEvent,
   type KeyboardEvent,
   type ReactNode,
+  type RefCallback,
 } from "react";
+import { useMergedRef } from "@mantine/hooks";
 import { renderMarkdown } from "@app/components/viewer/nonpdf/MarkdownRenderer";
 import { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
-  ActionIcon,
-  Box,
   Collapse,
   Group,
-  Menu,
   Paper,
   ScrollArea,
   Stack,
   Text,
   Textarea,
-  UnstyledButton,
 } from "@mantine/core";
-import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
-import ArticleOutlinedIcon from "@mui/icons-material/ArticleOutlined";
-import BuildOutlinedIcon from "@mui/icons-material/BuildOutlined";
-import CloseIcon from "@mui/icons-material/Close";
-import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
-import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import { Button } from "@app/ui/Button";
+import { ActionIcon } from "@app/ui/ActionIcon";
+import { Icon } from "@app/ui/Icon";
 import {
   useChat,
   AiWorkflowPhase,
@@ -44,7 +36,6 @@ import {
 import { formatRelativeTime } from "@app/utils/timeUtils";
 import { useTranslatedToolCatalog } from "@app/data/useTranslatedToolRegistry";
 import { StirlingLogoAnimated } from "@app/components/agents/StirlingLogoAnimated";
-import { StirlingLogoOutline } from "@app/components/agents/StirlingLogoOutline";
 import { ChatQuickActions } from "@app/components/chat/ChatQuickActions";
 import "@app/components/chat/ChatPanel.css";
 
@@ -165,15 +156,15 @@ function progressStepIcon(
     if (registryIcon) {
       return <span className="chat-step-icon-scaled">{registryIcon}</span>;
     }
-    return <BuildOutlinedIcon sx={{ fontSize: 17 }} />;
+    return <Icon name="wrench" size={17} />;
   }
   if (
     progress.phase === AiWorkflowPhase.EXTRACTING_CONTENT ||
     progress.phase === AiWorkflowPhase.ENGINE_PROGRESS
   ) {
-    return <ArticleOutlinedIcon sx={{ fontSize: 17 }} />;
+    return <Icon name="file-text" size={17} />;
   }
-  return <CloudOutlinedIcon sx={{ fontSize: 17 }} />;
+  return <Icon name="cloud" size={17} />;
 }
 
 /**
@@ -268,22 +259,25 @@ function CompletedProgressLogDropdown({
 
   return (
     <div className="chat-completed-log">
-      <UnstyledButton
+      <Button
+        type="button"
+        variant="tertiary"
+        hover={false}
         className="chat-completed-log__toggle"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
         <Group gap={4} wrap="nowrap" align="center">
           {expanded ? (
-            <ExpandLessIcon sx={{ fontSize: 12 }} />
+            <Icon name="chevron-up" size={12} />
           ) : (
-            <ExpandMoreIcon sx={{ fontSize: 12 }} />
+            <Icon name="chevron-down" size={12} />
           )}
           <Text size="xs" c="dimmed">
             {label}
           </Text>
         </Group>
-      </UnstyledButton>
+      </Button>
       <Collapse in={expanded}>
         <ol className="chat-completed-log__tools">
           {toolSteps.map((step, i) => {
@@ -303,6 +297,24 @@ function CompletedProgressLogDropdown({
       </Collapse>
     </div>
   );
+}
+
+/**
+ * Narrows wrapped text to its longest line. Text that wraps keeps the full width
+ * on offer, so a shorter last line would leave a gap down the bubble's right side.
+ */
+function useShrinkWrap(content: string) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.width = "";
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const { width } = range.getBoundingClientRect();
+    if (width > 0) el.style.width = `${Math.ceil(width)}px`;
+  }, [content]);
+  return ref;
 }
 
 function ChatMessageBubble({
@@ -325,6 +337,7 @@ function ChatMessageBubble({
   t: TranslateFn;
 }) {
   const [copied, setCopied] = useState(false);
+  const userTextRef = useShrinkWrap(content);
 
   function handleCopy() {
     void navigator.clipboard.writeText(content).then(() => {
@@ -335,14 +348,16 @@ function ChatMessageBubble({
 
   const actions = (
     <div className="chat-message-actions">
-      <button
+      <ActionIcon
         type="button"
+        variant="tertiary"
         className={`chat-message-action-btn${copied ? " chat-message-action-btn--active" : ""}`}
         onClick={handleCopy}
         title={t("chat.actions.copy", "Copy message")}
+        aria-label={t("chat.actions.copy", "Copy message")}
       >
-        <ContentCopyIcon sx={{ fontSize: 13 }} />
-      </button>
+        <Icon name="copy" size={13} />
+      </ActionIcon>
       <span className="chat-message-timestamp">
         {formatRelativeTime(timestamp, t)}
       </span>
@@ -353,8 +368,17 @@ function ChatMessageBubble({
     return (
       <div className="chat-message chat-message-user">
         <div className="chat-message-user__inner">
-          <Paper className="chat-bubble chat-bubble-user" p="xs" radius="md">
-            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+          <Paper
+            className="chat-bubble chat-bubble-user"
+            px="sm"
+            py="xs"
+            radius="md"
+          >
+            <Text
+              ref={userTextRef}
+              size="sm"
+              style={{ whiteSpace: "pre-wrap" }}
+            >
               {content}
             </Text>
           </Paper>
@@ -386,33 +410,43 @@ function ChatMessageBubble({
 }
 
 export interface ChatPanelProps {
-  /** Called when the user closes the chat to return to the tool list. */
-  onBack: () => void;
-  /** Accessible label for the close button. */
-  backLabel: string;
+  /** False keeps only the composer on screen; the conversation stays mounted but inert. */
+  expanded: boolean;
+  /** Sits above the conversation and is hidden with it. */
+  header: ReactNode;
+  /** Attached to the message list's scroller, for a header above it to track its scroll. */
+  messagesRef: RefCallback<HTMLDivElement>;
+  onComposerFocus: (event: FocusEvent<HTMLTextAreaElement>) => void;
 }
 
-export function ChatPanel({ onBack, backLabel }: ChatPanelProps) {
+/** The conversation and its composer, laid out to sit under a header in a flex column. */
+export function ChatPanel({
+  expanded,
+  header,
+  messagesRef,
+  onComposerFocus,
+}: ChatPanelProps) {
   const { t } = useTranslation();
-  const { messages, isLoading, progressLog, sendMessage, clearChat } =
-    useChat();
+  const { messages, isLoading, progressLog, sendMessage } = useChat();
   const resolveToolName = useToolNameResolver();
   const resolveToolIcon = useToolIconResolver();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const viewportRef = useMergedRef(scrollRef, messagesRef);
   // Tracks whether the user manually scrolled away from the bottom.
   // A ref (not state) so scroll events don't cause re-renders.
   const userScrolledUp = useRef(false);
 
-  // Jump to the bottom on first render so existing conversations open at the
-  // most recent message rather than the top.
+  // Open at the most recent message rather than wherever a collapsed, zero-height
+  // viewport left the scroll position.
   useEffect(() => {
+    if (!expanded) return;
+    userScrolledUp.current = false;
     requestAnimationFrame(() => {
       const el = scrollRef.current;
       if (el) el.scrollTop = el.scrollHeight;
     });
-  }, []);
+  }, [expanded]);
 
   // Attach a passive scroll listener to track whether the user has scrolled
   // away from the bottom (breaks auto-scroll) or returned to it (re-latches).
@@ -444,10 +478,6 @@ export function ChatPanel({ onBack, backLabel }: ChatPanelProps) {
     }
   }, [messages, progressLog]);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
   const handleSend = (override?: string) => {
     const text = (override ?? input).trim();
     if (!text || isLoading) return;
@@ -469,129 +499,75 @@ export function ChatPanel({ onBack, backLabel }: ChatPanelProps) {
   );
 
   return (
-    <Box className="chat-panel chat-panel--embedded">
-      <div className="chat-panel__header">
-        <Menu shadow="md" width={220} position="bottom-start" withinPortal>
-          <Menu.Target>
-            <button
-              type="button"
-              className={`chat-panel__agent-pill${isLoading ? " chat-panel__agent-pill--loading" : ""}`}
-              aria-label={t("chat.header.agentMenu", "Stirling agent options")}
-            >
-              <span className="chat-panel__agent-pill-icon">
-                <StirlingLogoOutline size={16} />
-                {isLoading && <span className="agent-status-dot" />}
-              </span>
-              <span className="chat-panel__agent-pill-label">
-                {t("agents.stirling_name", "Stirling")}
-              </span>
-              <KeyboardArrowDownIcon
-                sx={{ fontSize: 18, color: "var(--text-muted)" }}
-              />
-            </button>
-          </Menu.Target>
-          <Menu.Dropdown>
-            <Menu.Item
-              leftSection={<DeleteSweepIcon sx={{ fontSize: 18 }} />}
-              onClick={clearChat}
-              disabled={messages.length === 0 && !isLoading}
-            >
-              {t("chat.header.clearChat", "Clear chat")}
-            </Menu.Item>
-          </Menu.Dropdown>
-        </Menu>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="md"
-          radius="xl"
-          onClick={onBack}
-          aria-label={backLabel}
-        >
-          <CloseIcon sx={{ fontSize: 18 }} />
-        </ActionIcon>
-      </div>
-
-      {showQuickActions && (
-        <div className="chat-panel-disclaimer chat-panel-disclaimer--banner">
-          <InfoOutlinedIcon
-            className="chat-panel-disclaimer__icon"
-            sx={{ fontSize: 18 }}
-          />
-          <span>{disclaimerText}</span>
-        </div>
-      )}
-
-      <ScrollArea className="chat-panel-messages" viewportRef={scrollRef}>
-        <Stack
-          gap="sm"
-          px="md"
-          pt="sm"
-          className="chat-panel-messages__content"
-        >
-          {messages.map((msg) => (
-            <ChatMessageBubble
-              key={msg.id}
-              role={msg.role}
-              content={msg.content}
-              timestamp={msg.timestamp}
-              progressLog={msg.progressLog}
-              durationMs={msg.durationMs}
-              resolveToolName={resolveToolName}
-              resolveToolIcon={resolveToolIcon}
-              t={t}
+    <>
+      <div className="chat-panel" aria-hidden={!expanded} inert={!expanded}>
+        {header}
+        {showQuickActions && (
+          <div className="chat-panel-disclaimer chat-panel-disclaimer--banner">
+            <Icon
+              name="info"
+              size={18}
+              className="chat-panel-disclaimer__icon"
             />
-          ))}
-          {isLoading && (
-            <div className="chat-message chat-message-assistant">
-              <ProgressLogDisplay
-                progressLog={progressLog}
-                t={t}
+            <span>{disclaimerText}</span>
+          </div>
+        )}
+
+        <ScrollArea className="chat-panel-messages" viewportRef={viewportRef}>
+          <Stack
+            gap="sm"
+            px="xs"
+            pt="sm"
+            className="chat-panel-messages__content"
+          >
+            {messages.map((msg) => (
+              <ChatMessageBubble
+                key={msg.id}
+                role={msg.role}
+                content={msg.content}
+                timestamp={msg.timestamp}
+                progressLog={msg.progressLog}
+                durationMs={msg.durationMs}
                 resolveToolName={resolveToolName}
                 resolveToolIcon={resolveToolIcon}
+                t={t}
               />
-            </div>
-          )}
-        </Stack>
-      </ScrollArea>
+            ))}
+            {isLoading && (
+              <div className="chat-message chat-message-assistant">
+                <ProgressLogDisplay
+                  progressLog={progressLog}
+                  t={t}
+                  resolveToolName={resolveToolName}
+                  resolveToolIcon={resolveToolIcon}
+                />
+              </div>
+            )}
+          </Stack>
+        </ScrollArea>
 
-      {showQuickActions && (
-        <ChatQuickActions
-          heading={t("chat.quickActions.heading", "Get started")}
-          onAction={(text) => handleSend(text)}
-        />
-      )}
-
-      {!showQuickActions && (
-        <div className="chat-panel-disclaimer chat-panel-disclaimer--inline">
-          <InfoOutlinedIcon
-            className="chat-panel-disclaimer__icon"
-            sx={{ fontSize: 13 }}
+        {showQuickActions && (
+          <ChatQuickActions
+            heading={t("chat.quickActions.heading", "Get started")}
+            onAction={(text) => handleSend(text)}
           />
-          <span>{disclaimerText}</span>
-        </div>
-      )}
+        )}
+
+        {!showQuickActions && (
+          <div className="chat-panel-disclaimer chat-panel-disclaimer--inline">
+            <span>{disclaimerText}</span>
+          </div>
+        )}
+      </div>
 
       <div className="chat-panel-input">
-        <ActionIcon
-          className="chat-panel-input__send"
-          variant="filled"
-          color="blue"
-          radius="xl"
-          size="sm"
-          onClick={() => handleSend()}
-          disabled={!input.trim() || isLoading}
-          aria-label={t("chat.input.send", "Send message")}
-        >
-          <ArrowUpwardIcon sx={{ fontSize: 16 }} />
-        </ActionIcon>
         <Textarea
-          ref={inputRef}
-          placeholder={t("chat.input.placeholder", "What do you want to do?")}
+          placeholder={t("chat.dock.placeholder", "Ask Stirling Agent")}
+          aria-label={t("chat.dock.placeholder", "Ask Stirling Agent")}
           value={input}
           onChange={(e) => setInput(e.currentTarget.value)}
           onKeyDown={handleKeyDown}
-          disabled={isLoading}
+          onFocus={onComposerFocus}
           autosize
           minRows={1}
           maxRows={4}
@@ -601,7 +577,16 @@ export function ChatPanel({ onBack, backLabel }: ChatPanelProps) {
             input: "chat-panel-input__field",
           }}
         />
+        <ActionIcon
+          size="sm"
+          loading={isLoading}
+          onClick={() => handleSend()}
+          disabled={!input.trim() || isLoading}
+          aria-label={t("chat.input.send", "Send message")}
+        >
+          <Icon name="arrow-up" size={16} />
+        </ActionIcon>
       </div>
-    </Box>
+    </>
   );
 }

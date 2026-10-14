@@ -1,4 +1,6 @@
+import { clearNotificationReadState } from "@app/hooks/useNotifications";
 import { connectionModeService } from "@app/services/connectionModeService";
+import { suspendWorkbenchSession } from "@app/services/workbenchSession";
 
 type SignOutFn = () => Promise<void>;
 
@@ -16,6 +18,12 @@ export function useAccountLogout() {
     redirectToLogin,
   }: AccountLogoutDeps): Promise<void> => {
     try {
+      // The tab outlives the session; the next person to sign in here must not
+      // inherit this workbench. Suspends writing too - signing out unmounts the
+      // editor, and its flush would otherwise write the record straight back.
+      suspendWorkbenchSession();
+      // Same reason: the next person's own failures must not arrive pre-read.
+      clearNotificationReadState();
       await signOut();
 
       const currentConfig = await connectionModeService.getCurrentConfig();
@@ -26,8 +34,8 @@ export function useAccountLogout() {
       ) {
         localStorage.setItem("server_url", currentConfig.server_config.url);
       }
-      // Always switch to local after logout so the app remains usable
-      await connectionModeService.switchToLocal();
+      if (!currentConfig.require_sign_in)
+        await connectionModeService.switchToLocal();
 
       window.history.replaceState({}, "", "/");
       // No reload needed — AppProviders remounts the SaaS provider tree via

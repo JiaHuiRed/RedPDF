@@ -17,6 +17,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
 
 import io.github.pixee.security.Filenames;
@@ -26,11 +27,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import stirling.software.SPDF.config.EndpointConfiguration;
+import stirling.software.SPDF.service.OfficeConversionService;
+import stirling.software.SPDF.service.OfficeToPdfService;
 import stirling.software.common.annotations.AutoJobPostMapping;
 import stirling.software.common.annotations.api.ConvertApi;
 import stirling.software.common.configuration.RuntimePathConfig;
 import stirling.software.common.enumeration.ResourceWeight;
 import stirling.software.common.model.api.GeneralFile;
+import stirling.software.common.model.tool.ToolFormat;
+import stirling.software.common.model.tool.ToolIO;
 import stirling.software.common.service.CustomPDFDocumentFactory;
 import stirling.software.common.util.CustomHtmlSanitizer;
 import stirling.software.common.util.ExceptionUtils;
@@ -54,6 +59,8 @@ public class ConvertOfficeController {
     private final OfficeDocumentSanitizer officeDocumentSanitizer;
     private final EndpointConfiguration endpointConfiguration;
     private final TempFileManager tempFileManager;
+    private final OfficeConversionService officeConversionService;
+    private final OfficeToPdfService officeToPdfService;
 
     private boolean isUnoconvertAvailable() {
         return endpointConfiguration.isGroupEnabled("Unoconvert")
@@ -61,6 +68,11 @@ public class ConvertOfficeController {
     }
 
     public File convertToPdf(MultipartFile inputFile) throws IOException, InterruptedException {
+        return convertToPdf(inputFile, null);
+    }
+
+    public File convertToPdf(MultipartFile inputFile, Boolean useStirlingOfficeConvert)
+            throws IOException, InterruptedException {
         // Check for valid file extension and sanitize filename
         String originalFilename = Filenames.toSimpleFileName(inputFile.getOriginalFilename());
         if (originalFilename == null || originalFilename.isBlank()) {
@@ -84,6 +96,15 @@ public class ConvertOfficeController {
         Path workDir = Files.createTempDirectory("office2pdf_");
         Path inputPath = workDir.resolve(baseName + "." + extensionLower);
         Path outputPath = workDir.resolve(baseName + ".pdf");
+
+        if (officeToPdfService.handles(extensionLower, useStirlingOfficeConvert)) {
+            if (convertInProcess(inputFile, extensionLower, workDir, inputPath, outputPath)) {
+                return outputPath.toFile();
+            }
+        } else if (!officeConversionService.libreOfficeAvailable()) {
+            FileUtils.deleteQuietly(workDir.toFile());
+            throw ExceptionUtils.createLibreOfficeRequiredException(extensionLower);
+        }
 
         // Sanitize input before LibreOffice sees it so embedded URLs can't trigger SSRF.
         if ("html".equals(extensionLower) || "htm".equals(extensionLower)) {
@@ -198,6 +219,48 @@ public class ConvertOfficeController {
         }
     }
 
+    /** False when LibreOffice should retry the file; the original upload is converted as is. */
+    private boolean convertInProcess(
+            MultipartFile inputFile,
+            String extension,
+            Path workDir,
+            Path inputPath,
+            Path outputPath)
+            throws IOException {
+        try {
+            // Same sanitizing and ZIP budget as the LibreOffice path; a refused file never falls
+            // back.
+            if (officeDocumentSanitizer.isSanitizableExtension(extension)) {
+                Files.write(
+                        inputPath,
+                        officeDocumentSanitizer.sanitize(inputFile.getBytes(), extension));
+            } else {
+                Files.copy(
+                        inputFile.getInputStream(), inputPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException | RuntimeException e) {
+            FileUtils.deleteQuietly(workDir.toFile());
+            throw e;
+        }
+        try {
+            officeToPdfService.convert(inputPath, outputPath);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            if (!officeToPdfService.canFallBack(e)) {
+                FileUtils.deleteQuietly(workDir.toFile());
+                throw e;
+            }
+            log.warn(
+                    "Stirling Office Convert could not convert {} ({}); retrying with LibreOffice",
+                    inputPath.getFileName(),
+                    e.getMessage());
+            Files.deleteIfExists(outputPath);
+            return false;
+        } finally {
+            Files.deleteIfExists(inputPath);
+        }
+    }
+
     private boolean isValidFileExtension(String fileExtension) {
         return RegexPatternUtils.getInstance()
                 .getFileExtensionValidationPattern()
@@ -209,20 +272,22 @@ public class ConvertOfficeController {
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
             value = "/file/pdf",
             resourceWeight = ResourceWeight.LARGE_WEIGHT)
+    @ToolIO(accepts = ToolFormat.ANY, produces = ToolFormat.PDF)
     @Operation(
-            summary = "Convert a file to a PDF using LibreOffice",
+            summary = "Convert a file to a PDF",
             description =
-                    "This endpoint converts a given file to a PDF using LibreOffice API  Input:ANY"
-                            + " Output:PDF Type:SISO")
-    public ResponseEntity<Resource> processFileToPDF(@ModelAttribute GeneralFile generalFile)
+                    "This endpoint converts a given file to a PDF using Stirling Office Convert or"
+                            + " LibreOffice")
+    public ResponseEntity<Resource> processFileToPDF(
+            @ModelAttribute GeneralFile generalFile,
+            @RequestParam(value = "useStirlingOfficeConvert", required = false)
+                    Boolean useStirlingOfficeConvert)
             throws Exception {
         MultipartFile inputFile = generalFile.getFileInput();
-        // unused but can start server instance if startup time is to long
-        // LibreOfficeListener.getInstance().start();
         File file = null;
         TempFile tempOut = null;
         try {
-            file = convertToPdf(inputFile);
+            file = convertToPdf(inputFile, useStirlingOfficeConvert);
 
             tempOut = tempFileManager.createManagedTempFile(".pdf");
             try (PDDocument doc = pdfDocumentFactory.load(file)) {

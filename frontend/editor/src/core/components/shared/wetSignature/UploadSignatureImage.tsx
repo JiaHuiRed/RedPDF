@@ -1,9 +1,8 @@
 import { useState, useRef } from "react";
-import { Stack, Button, Text, Image } from "@mantine/core";
+import { Stack, Text, Image } from "@mantine/core";
+import { Button } from "@app/ui/Button";
 import { useTranslation } from "react-i18next";
-import UploadFileIcon from "@mui/icons-material/UploadFile";
-import DeleteIcon from "@mui/icons-material/Delete";
-
+import { Icon } from "@app/ui/Icon";
 interface UploadSignatureImageProps {
   signature: string | null;
   onChange: (signature: string | null) => void;
@@ -93,16 +92,19 @@ export const UploadSignatureImage: React.FC<UploadSignatureImageProps> = ({
           >
             <Image
               src={signature}
-              alt="Signature"
+              alt={t(
+                "certSign.collab.signRequest.signatureImageAlt",
+                "Signature",
+              )}
               fit="contain"
               style={{ maxHeight: "150px", maxWidth: "100%" }}
             />
           </div>
 
           <Button
-            variant="light"
-            color="red"
-            leftSection={<DeleteIcon sx={{ fontSize: 16 }} />}
+            variant="secondary"
+            accent="danger"
+            leftSection={<Icon name="trash" size={16} />}
             onClick={handleClear}
             disabled={disabled}
             fullWidth
@@ -112,8 +114,8 @@ export const UploadSignatureImage: React.FC<UploadSignatureImageProps> = ({
         </Stack>
       ) : (
         <Button
-          variant="outline"
-          leftSection={<UploadFileIcon sx={{ fontSize: 16 }} />}
+          variant="secondary"
+          leftSection={<Icon name="file-up" size={16} />}
           onClick={handleUploadClick}
           disabled={disabled}
           fullWidth
@@ -123,7 +125,7 @@ export const UploadSignatureImage: React.FC<UploadSignatureImageProps> = ({
       )}
 
       {error && (
-        <Text size="xs" c="red">
+        <Text size="xs" c="var(--color-red-dark)">
           {error}
         </Text>
       )}

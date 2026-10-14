@@ -8,14 +8,16 @@ updates:
   - package-ecosystem: "gradle" # See documentation for possible values
     directories:
       - "/" # Location of package manifests
-      - "/app/common"
-      - "/app/core"
-      - "/app/proprietary"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 7
     rebase-strategy: "auto"
+    groups:
+      simple-java-mail:
+        patterns:
+          - "org.simplejavamail:simple-java-mail"
+          - "org.simplejavamail:outlook-module"
 
   - package-ecosystem: "docker"
     directories:
@@ -32,6 +34,19 @@ updates:
     cooldown:
       default-days: 7
     rebase-strategy: "auto"
+    groups:
+      ubuntu:
+        patterns:
+          - "ubuntu"
+      eclipse-temurin:
+        patterns:
+          - "eclipse-temurin"
+      uv:
+        patterns:
+          - "ghcr.io/astral-sh/uv"
+      gradle:
+        patterns:
+          - "gradle"
 
   - package-ecosystem: github-actions
     directory: /
@@ -43,8 +58,10 @@ updates:
 
   - package-ecosystem: npm
     directories:
+      - /.github/scripts
       - /devTools
       - /frontend
+      - /testing/compose/mcp-client-check
     schedule:
       interval: "weekly"
     cooldown:
@@ -58,29 +75,22 @@ updates:
         patterns:
           - "@mantine/*"
           - "postcss-preset-mantine"
-      mui:
-        patterns:
-          - "@mui/*"
       tauri-js:
         patterns:
           - "@tauri-apps/*"
-      emotion:
-        patterns:
-          - "@emotion/*"
       react:
         patterns:
           - "react"
           - "react-dom"
           - "@types/react"
           - "@types/react-dom"
-      typescript-eslint:
+      tanstack:
         patterns:
-          - "@typescript-eslint/*"
-          - "typescript-eslint"
-      eslint:
+          - "@tanstack/*"
+      typescript:
         patterns:
-          - "eslint"
-          - "@eslint/*"
+          - "typescript"
+          - "@typescript/*"
       vite:
         patterns:
           - "vite"
@@ -98,10 +108,9 @@ updates:
           - "i18next"
           - "i18next-*"
           - "react-i18next"
-      iconify:
+      lucide:
         patterns:
-          - "@iconify/*"
-          - "@iconify-json/*"
+          - "lucide-static"
       stripe:
         patterns:
           - "@stripe/*"
@@ -109,6 +118,10 @@ updates:
         patterns:
           - "@posthog/*"
           - "posthog-js"
+      storybook:
+        patterns:
+          - "storybook"
+          - "@storybook/*"
       supabase:
         patterns:
           - "@supabase/*"
@@ -155,8 +168,8 @@ updates:
           - "tokio"
           - "tokio-*"
 
-  - package-ecosystem: pip
-    directory: /testing/cucumber
+  - package-ecosystem: "uv"
+    directory: "/engine"
     schedule:
       interval: "weekly"
     cooldown:

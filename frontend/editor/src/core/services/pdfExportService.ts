@@ -5,6 +5,7 @@ import {
   saveRawDocument,
   importPages,
   setPageRotation,
+  degreesToPdfiumRotation,
   addNewPage,
 } from "@app/services/pdfiumService";
 import { downloadFileWithPolicy } from "@app/services/exportWithPolicy";
@@ -130,11 +131,18 @@ export class PDFExportService {
         }
       }
 
+      // A page that cannot be written is a hard error: dropping it silently
+      // loses data, and still advancing insertIdx would set every later page's
+      // rotation on the wrong index. insertIdx only moves once a page lands.
       let insertIdx = 0;
       for (const page of pages) {
         if (page.isBlankPage || page.originalPageNumber === -1) {
-          // Insert a blank A4 page
-          await addNewPage(destDocPtr, insertIdx, A4_WIDTH, A4_HEIGHT);
+          await addNewPage(
+            destDocPtr,
+            insertIdx,
+            page.blankSize?.width ?? A4_WIDTH,
+            page.blankSize?.height ?? A4_HEIGHT,
+          );
           // Set absolute rotation (incl. 0) so editor rotation wins over source.
           await setPageRotation(
             destDocPtr,
@@ -142,39 +150,45 @@ export class PDFExportService {
             degreesToPdfiumRotation(page.rotation),
           );
           insertIdx++;
-        } else if (page.originalFileId && loadedDocs.has(page.originalFileId)) {
-          const srcDocPtr = loadedDocs.get(page.originalFileId)!;
-          const srcPageCount = m.FPDF_GetPageCount(srcDocPtr);
-          const sourcePageIndex = page.originalPageNumber - 1;
+          continue;
+        }
 
-          if (sourcePageIndex >= 0 && sourcePageIndex < srcPageCount) {
-            // Import the specific page (1-based page range for FPDF_ImportPages)
-            const pageRange = String(sourcePageIndex + 1);
-            const imported = await importPages(
-              destDocPtr,
-              srcDocPtr,
-              pageRange,
-              insertIdx,
-            );
-            if (imported) {
-              // Set absolute rotation (incl. 0) so editor rotation wins over source.
-              await setPageRotation(
-                destDocPtr,
-                insertIdx,
-                degreesToPdfiumRotation(page.rotation),
-              );
-            } else {
-              console.warn(
-                `[PDFExport] importPages failed for fileId=${page.originalFileId} pageRange=${pageRange} — page will be missing from output.`,
-              );
-            }
-            insertIdx++;
-          }
-        } else {
-          console.warn(
-            `Cannot find source document for page ${page.pageNumber} (fileId: ${page.originalFileId})`,
+        const srcDocPtr = page.originalFileId
+          ? loadedDocs.get(page.originalFileId)
+          : undefined;
+        if (srcDocPtr == null) {
+          throw new Error(
+            `[PDFExport] no source document for page ${page.pageNumber} (fileId=${page.originalFileId})`,
           );
         }
+        const srcPageCount = m.FPDF_GetPageCount(srcDocPtr);
+        const sourcePageIndex = page.originalPageNumber - 1;
+        if (sourcePageIndex < 0 || sourcePageIndex >= srcPageCount) {
+          throw new Error(
+            `[PDFExport] page ${page.originalPageNumber} out of range for fileId=${page.originalFileId} (${srcPageCount} pages)`,
+          );
+        }
+
+        // Import the specific page (1-based page range for FPDF_ImportPages).
+        const pageRange = String(sourcePageIndex + 1);
+        const imported = await importPages(
+          destDocPtr,
+          srcDocPtr,
+          pageRange,
+          insertIdx,
+        );
+        if (!imported) {
+          throw new Error(
+            `[PDFExport] importPages failed for fileId=${page.originalFileId} pageRange=${pageRange}`,
+          );
+        }
+        // Set absolute rotation (incl. 0) so editor rotation wins over source.
+        await setPageRotation(
+          destDocPtr,
+          insertIdx,
+          degreesToPdfiumRotation(page.rotation),
+        );
+        insertIdx++;
       }
 
       // Save the assembled document
@@ -208,11 +222,19 @@ export class PDFExportService {
 
     try {
       const srcPageCount = m.FPDF_GetPageCount(srcDocPtr);
+      // A page that cannot be written is a hard error: dropping it silently
+      // loses data, and still advancing insertIdx would set every later page's
+      // rotation on the wrong index. insertIdx only moves once a page lands.
       let insertIdx = 0;
 
       for (const page of pages) {
         if (page.isBlankPage || page.originalPageNumber === -1) {
-          await addNewPage(destDocPtr, insertIdx, A4_WIDTH, A4_HEIGHT);
+          await addNewPage(
+            destDocPtr,
+            insertIdx,
+            page.blankSize?.width ?? A4_WIDTH,
+            page.blankSize?.height ?? A4_HEIGHT,
+          );
           // Set absolute rotation (incl. 0) so editor rotation wins over source.
           await setPageRotation(
             destDocPtr,
@@ -220,32 +242,34 @@ export class PDFExportService {
             degreesToPdfiumRotation(page.rotation),
           );
           insertIdx++;
-        } else {
-          const sourcePageIndex = page.originalPageNumber - 1;
-
-          if (sourcePageIndex >= 0 && sourcePageIndex < srcPageCount) {
-            const pageRange = String(sourcePageIndex + 1);
-            const imported = await importPages(
-              destDocPtr,
-              srcDocPtr,
-              pageRange,
-              insertIdx,
-            );
-            if (imported) {
-              // Set absolute rotation (incl. 0) so editor rotation wins over source.
-              await setPageRotation(
-                destDocPtr,
-                insertIdx,
-                degreesToPdfiumRotation(page.rotation),
-              );
-            } else {
-              console.warn(
-                `[PDFExport] importPages failed for page ${page.originalPageNumber} pageRange=${pageRange} — page will be missing from output.`,
-              );
-            }
-            insertIdx++;
-          }
+          continue;
         }
+
+        const sourcePageIndex = page.originalPageNumber - 1;
+        if (sourcePageIndex < 0 || sourcePageIndex >= srcPageCount) {
+          throw new Error(
+            `[PDFExport] page ${page.originalPageNumber} out of range (${srcPageCount} pages)`,
+          );
+        }
+        const pageRange = String(sourcePageIndex + 1);
+        const imported = await importPages(
+          destDocPtr,
+          srcDocPtr,
+          pageRange,
+          insertIdx,
+        );
+        if (!imported) {
+          throw new Error(
+            `[PDFExport] importPages failed for page ${page.originalPageNumber} pageRange=${pageRange}`,
+          );
+        }
+        // Set absolute rotation (incl. 0) so editor rotation wins over source.
+        await setPageRotation(
+          destDocPtr,
+          insertIdx,
+          degreesToPdfiumRotation(page.rotation),
+        );
+        insertIdx++;
       }
 
       const resultBuf = await saveRawDocument(destDocPtr);
@@ -351,23 +375,6 @@ export class PDFExportService {
     const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-  }
-}
-
-/**
- * Convert degrees (0, 90, 180, 270) to PDFium rotation enum (0, 1, 2, 3).
- */
-function degreesToPdfiumRotation(degrees: number): number {
-  const normalized = ((degrees % 360) + 360) % 360;
-  switch (normalized) {
-    case 90:
-      return 1;
-    case 180:
-      return 2;
-    case 270:
-      return 3;
-    default:
-      return 0;
   }
 }
 

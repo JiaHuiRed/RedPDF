@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from "react";
-import { Box, Button, Stack } from "@mantine/core";
+import { Box, Stack } from "@mantine/core";
 import { useTranslation } from "react-i18next";
+import { Button } from "@app/ui/Button";
 import { ToolRegistryEntry } from "@app/data/toolsTaxonomy";
 import "@app/components/tools/toolPicker/ToolPicker.css";
 import { useToolSections } from "@app/hooks/useToolSections";
@@ -9,7 +10,9 @@ import { useFavoriteToolItems } from "@app/hooks/tools/useFavoriteToolItems";
 import NoToolsFound from "@app/components/tools/shared/NoToolsFound";
 import { renderToolButtons } from "@app/components/tools/shared/renderToolButtons";
 import ToolButton from "@app/components/tools/toolPicker/ToolButton";
+import { LazyToolSection } from "@app/components/tools/toolPicker/LazyToolSection";
 import { useToolWorkflowData } from "@app/contexts/ToolWorkflowContext";
+import { useIsScrolled } from "@app/hooks/useIsScrolled";
 import { ToolId } from "@app/types/toolId";
 import { getSubcategoryLabel } from "@app/data/toolsTaxonomy";
 import { ToolPickerFooterExtensions } from "@app/components/tools/toolPicker/ToolPickerFooterExtensions";
@@ -26,16 +29,18 @@ interface ToolPickerProps {
   compact?: boolean;
   /** Called when the user clicks "View all tools" in compact mode. */
   onShowAllTools?: () => void;
+  /** Pinned above the list; gains a rule once rows scroll beneath it. */
+  header?: React.ReactNode;
 }
 
 const EMPTY_FILTERED_TOOLS: ToolPickerProps["filteredTools"] = [];
 const HEADER_TEXT_STYLE: React.CSSProperties = {
   fontSize: "0.68rem",
   fontWeight: 600,
-  padding: "1rem 0 0.35rem 0.5rem",
+  padding: "0.25rem 0 0.35rem 0.5rem",
   textTransform: "uppercase",
   letterSpacing: "0.06em",
-  color: "var(--text-muted)",
+  color: "var(--c-text-subtle)",
 };
 const SCROLLABLE_STYLE: React.CSSProperties = {
   flex: 1,
@@ -48,7 +53,7 @@ const SCROLLABLE_STYLE: React.CSSProperties = {
 const CONTAINER_STYLE: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  background: "var(--bg-toolbar)",
+  background: "var(--c-surface)",
 };
 const toTitleCase = (s: string) =>
   s.replace(
@@ -63,10 +68,14 @@ const ToolPicker = ({
   isSearching = false,
   compact = false,
   onShowAllTools,
+  header,
 }: ToolPickerProps) => {
   const { t } = useTranslation();
 
-  const scrollableRef = useRef<HTMLDivElement>(null);
+  const { scrolled, scrollRef } = useIsScrolled();
+  // The lazy sections observe against the scroller itself, so they need a
+  // stable ref alongside the callback ref that drives the header divider.
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   const { sections: visibleSections } = useToolSections(filteredTools);
   const { favoriteTools, toolRegistry } = useToolWorkflowData();
@@ -79,10 +88,8 @@ const ToolPicker = ({
   );
 
   const recommendedItems = useMemo(() => {
-    if (!quickSection)
-      return [] as Array<{ id: string; tool: ToolRegistryEntry }>;
     const items: Array<{ id: string; tool: ToolRegistryEntry }> = [];
-    quickSection.subcategories.forEach((sc: SubcategoryGroup) =>
+    quickSection?.subcategories.forEach((sc: SubcategoryGroup) =>
       sc.tools.forEach((toolEntry) => items.push(toolEntry)),
     );
     return items;
@@ -100,8 +107,19 @@ const ToolPicker = ({
 
   return (
     <Box h="100%" style={CONTAINER_STYLE}>
+      {header && (
+        <div
+          className="tool-picker__header"
+          data-scrolled={scrolled || undefined}
+        >
+          {header}
+        </div>
+      )}
       <Box
-        ref={scrollableRef}
+        ref={(el: HTMLDivElement | null) => {
+          scrollerRef.current = el;
+          return scrollRef(el);
+        }}
         style={SCROLLABLE_STYLE}
         className="tool-picker-scrollable"
       >
@@ -128,7 +146,7 @@ const ToolPicker = ({
           /* Resting state: flat list of pinned + recommended only. */
           <Box className="tool-picker__compact">
             <div style={HEADER_TEXT_STYLE}>
-              {t("toolPanel.toolsHeader", "Tools")}
+              {t("toolPanel.toolsHeader", "PDF Tools")}
             </div>
             {favoriteToolItems.length === 0 && recommendedItems.length === 0 ? (
               <NoToolsFound />
@@ -164,7 +182,7 @@ const ToolPicker = ({
             )}
             {onShowAllTools && (
               <Button
-                variant="subtle"
+                variant="tertiary"
                 size="sm"
                 fullWidth
                 onClick={onShowAllTools}
@@ -178,7 +196,7 @@ const ToolPicker = ({
         ) : (
           <>
             {/* All-tools view: favourites + recommended + all subcategories. */}
-            <Stack p="sm" gap="xs">
+            <Stack px="sm" pb="sm" pt={4} gap="xs">
               {favoriteToolItems.length > 0 && (
                 <Box w="100%">
                   <div style={HEADER_TEXT_STYLE}>
@@ -219,21 +237,30 @@ const ToolPicker = ({
               )}
               {allSection &&
                 allSection.subcategories.map((sc: SubcategoryGroup) => (
-                  <Box key={sc.subcategoryId} w="100%">
-                    <div style={HEADER_TEXT_STYLE}>
-                      {toTitleCase(getSubcategoryLabel(t, sc.subcategoryId))}
-                    </div>
-                    {renderToolButtons(
-                      t,
-                      sc,
-                      selectedToolKey,
-                      onSelect,
-                      false,
-                      false,
-                      undefined,
-                      true,
+                  <LazyToolSection
+                    key={sc.subcategoryId}
+                    estimatedHeight={32 + sc.tools.length * 44}
+                    scrollRoot={scrollerRef}
+                    label={toTitleCase(
+                      getSubcategoryLabel(t, sc.subcategoryId),
                     )}
-                  </Box>
+                  >
+                    <Box w="100%">
+                      <div style={HEADER_TEXT_STYLE}>
+                        {toTitleCase(getSubcategoryLabel(t, sc.subcategoryId))}
+                      </div>
+                      {renderToolButtons(
+                        t,
+                        sc,
+                        selectedToolKey,
+                        onSelect,
+                        false,
+                        false,
+                        undefined,
+                        true,
+                      )}
+                    </Box>
+                  </LazyToolSection>
                 ))}
             </Stack>
 

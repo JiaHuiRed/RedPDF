@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 import type { TFunction } from "i18next";
 import { deriveDisplayName, type User } from "@app/auth/UseSession";
@@ -17,7 +18,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     user_metadata: {},
     created_at: "2026-01-01T00:00:00Z",
     ...overrides,
-  } as User;
+  };
 }
 
 describe("saas deriveDisplayName", () => {

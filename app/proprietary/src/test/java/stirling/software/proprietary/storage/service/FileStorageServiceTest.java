@@ -9,6 +9,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -19,12 +21,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import stirling.software.common.model.ApplicationProperties;
 import stirling.software.proprietary.security.database.repository.UserRepository;
 import stirling.software.proprietary.security.model.User;
+import stirling.software.proprietary.storage.crypto.StorageEncryptionException;
+import stirling.software.proprietary.storage.crypto.StorageKeyRevokedException;
 import stirling.software.proprietary.storage.model.FileShare;
 import stirling.software.proprietary.storage.model.ShareAccessRole;
 import stirling.software.proprietary.storage.model.StoredFile;
@@ -32,6 +37,7 @@ import stirling.software.proprietary.storage.provider.StorageProvider;
 import stirling.software.proprietary.storage.provider.StoredObject;
 import stirling.software.proprietary.storage.repository.FileShareAccessRepository;
 import stirling.software.proprietary.storage.repository.FileShareRepository;
+import stirling.software.proprietary.storage.repository.FolderRepository;
 import stirling.software.proprietary.storage.repository.StorageCleanupEntryRepository;
 import stirling.software.proprietary.storage.repository.StoredFileRepository;
 import stirling.software.proprietary.workflow.model.WorkflowSession;
@@ -41,6 +47,7 @@ import stirling.software.proprietary.workflow.model.WorkflowSession;
 class FileStorageServiceTest {
 
     @Mock private StoredFileRepository storedFileRepository;
+    @Mock private FolderRepository folderRepository;
     @Mock private FileShareRepository fileShareRepository;
     @Mock private FileShareAccessRepository fileShareAccessRepository;
     @Mock private UserRepository userRepository;
@@ -61,6 +68,7 @@ class FileStorageServiceTest {
         service =
                 new FileStorageService(
                         storedFileRepository,
+                        folderRepository,
                         fileShareRepository,
                         fileShareAccessRepository,
                         userRepository,
@@ -569,5 +577,152 @@ class FileStorageServiceTest {
         service.deleteFile(owner, f);
 
         verify(storedFileRepository).delete(f);
+    }
+
+    // -------------------------------------------------------------------------
+    // loadFile — encryption error mapping
+    // -------------------------------------------------------------------------
+
+    @Test
+    void loadFile_revokedKey_throwsForbidden() throws IOException {
+        StoredFile f = ownedFile(user(1L));
+        f.setStorageKey("k");
+        when(storageProvider.load("k"))
+                .thenThrow(new StorageKeyRevokedException("Encryption key X is disabled"));
+
+        assertThatThrownBy(() -> service.loadFile(f))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(
+                        e ->
+                                assertThat(((ResponseStatusException) e).getStatusCode())
+                                        .isEqualTo(HttpStatus.FORBIDDEN));
+    }
+
+    @Test
+    void loadFile_genericIoError_throwsInternalServerError() throws IOException {
+        StoredFile f = ownedFile(user(1L));
+        f.setStorageKey("k");
+        when(storageProvider.load("k")).thenThrow(new StorageEncryptionException("corrupt blob"));
+
+        assertThatThrownBy(() -> service.loadFile(f))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(
+                        e ->
+                                assertThat(((ResponseStatusException) e).getStatusCode())
+                                        .isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR));
+    }
+
+    // Temporary files and public share links
+
+    private FileShare linkFor(StoredFile file, boolean publicAccess) {
+        FileShare s = new FileShare();
+        s.setFile(file);
+        s.setShareToken("0f8fad5b-d9cb-469f-a165-70867728950e");
+        s.setAccessRole(ShareAccessRole.VIEWER);
+        s.setPublicAccess(publicAccess);
+        return s;
+    }
+
+    @Test
+    void storeTemporaryFile_setsExpiry() throws IOException {
+        when(storageProperties.getQuotas()).thenReturn(null);
+        MockMultipartFile file =
+                new MockMultipartFile("file", "out.pdf", "application/pdf", new byte[] {1});
+        when(storageProvider.store(any(), any()))
+                .thenReturn(
+                        StoredObject.builder()
+                                .storageKey("k")
+                                .originalFilename("out.pdf")
+                                .sizeBytes(1L)
+                                .build());
+        when(storedFileRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        StoredFile stored = service.storeTemporaryFile(user(1L), file, Duration.ofMinutes(60));
+
+        assertThat(stored.getExpiresAt())
+                .isBetween(
+                        LocalDateTime.now().plusMinutes(59), LocalDateTime.now().plusMinutes(61));
+    }
+
+    @Test
+    void listAccessibleFiles_hidesTemporaryFiles() {
+        User owner = user(1L);
+        StoredFile normal = ownedFile(owner);
+        StoredFile temp = ownedFile(owner);
+        temp.setId(101L);
+        temp.setExpiresAt(LocalDateTime.now().plusHours(1));
+        when(storedFileRepository.findAccessibleFiles(owner)).thenReturn(List.of(normal, temp));
+
+        assertThat(service.listAccessibleFiles(owner)).containsExactly(normal);
+    }
+
+    @Test
+    void getAccessibleFile_expired_throwsNotFound() {
+        User owner = user(1L);
+        StoredFile f = ownedFile(owner);
+        f.setExpiresAt(LocalDateTime.now().minusMinutes(1));
+        when(storedFileRepository.findByIdWithShares(100L)).thenReturn(Optional.of(f));
+
+        assertThatThrownBy(() -> service.getAccessibleFile(owner, 100L))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(
+                        e ->
+                                assertThat(((ResponseStatusException) e).getStatusCode())
+                                        .isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    void publicLink_openableWithoutLogin() {
+        FileShare link = linkFor(ownedFile(user(1L)), true);
+
+        assertThat(service.canAccessShareLink(link, null)).isTrue();
+    }
+
+    @Test
+    void privateLink_stillRequiresLogin() {
+        FileShare link = linkFor(ownedFile(user(1L)), false);
+
+        assertThat(service.canAccessShareLink(link, null)).isFalse();
+    }
+
+    @Test
+    void publicLink_toExpiredFile_isRefused() {
+        StoredFile f = ownedFile(user(1L));
+        f.setExpiresAt(LocalDateTime.now().minusSeconds(1));
+
+        assertThat(service.canAccessShareLink(linkFor(f, true), null)).isFalse();
+    }
+
+    @Test
+    void createPublicShareLink_savesPublicLinkWithExpiry() {
+        when(fileShareRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        User owner = user(1L);
+        LocalDateTime expiry = LocalDateTime.now().plusHours(1);
+
+        FileShare share =
+                service.createShareLink(
+                        owner, ownedFile(owner), ShareAccessRole.VIEWER, true, expiry);
+
+        assertThat(share.getPublicAccess()).isTrue();
+        assertThat(share.getExpiresAt()).isEqualTo(expiry);
+        assertThat(share.getShareToken()).isNotBlank();
+    }
+
+    @Test
+    void recordShareAccess_anonymousPublicDownload_isNotRecorded() {
+        FileShare link = linkFor(ownedFile(user(1L)), true);
+
+        service.recordShareAccess(link, null, false);
+
+        verify(fileShareAccessRepository, never()).save(any());
+    }
+
+    @Test
+    void publicLink_refusedWhenShareLinksTurnedOff() {
+        when(sharingProperties.isLinkEnabled()).thenReturn(false);
+        FileShare link = linkFor(ownedFile(user(1L)), true);
+
+        assertThat(service.canAccessShareLink(link, null)).isFalse();
+        assertThat(service.canCreateShareLinks()).isFalse();
     }
 }

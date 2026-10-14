@@ -1,14 +1,14 @@
 import React from "react";
 import { type TFunction } from "i18next";
 import {
-  createConfigNavSections as createCoreConfigNavSections,
+  createPreferencesNavSection,
   type ConfigNavSection,
 } from "@core/components/shared/config/configNavSections";
-import HotkeysSection from "@app/components/shared/config/configSections/HotkeysSection";
-import GeneralSection from "@app/components/shared/config/configSections/GeneralSection";
+import type { ConfigNavItem } from "@app/components/shared/config/types";
 import PasswordSecurity from "@app/components/shared/config/configSections/PasswordSecurity";
 import ApiKeys from "@app/components/shared/config/configSections/ApiKeys";
 import McpSection from "@app/components/shared/config/configSections/McpSection";
+import HelpSection from "@app/components/shared/config/configSections/HelpSection";
 import LegalSection from "@app/components/shared/config/configSections/LegalSection";
 import {
   createCloudBillingSection,
@@ -18,46 +18,15 @@ import {
 type OverviewComponent = React.ComponentType<{ onLogoutClick: () => void }>;
 
 interface CreateSaasConfigNavSectionsOptions {
-  isDev?: boolean;
   isAnonymous?: boolean;
   t: TFunction<"translation", undefined>;
-}
-
-function ensurePreferencesSection(
-  sections: ConfigNavSection[],
-): ConfigNavSection[] {
-  const preferencesIndex = sections.findIndex(
-    (section) => section.title === "Preferences",
-  );
-
-  if (preferencesIndex === -1) {
-    return [
-      ...sections,
-      {
-        title: "Preferences",
-        items: [
-          {
-            key: "general",
-            label: "General",
-            icon: "settings-rounded",
-            component: <GeneralSection />,
-          },
-          {
-            key: "hotkeys",
-            label: "Keyboard Shortcuts",
-            icon: "keyboard-rounded",
-            component: <HotkeysSection />,
-          },
-        ],
-      },
-    ];
-  }
-
-  return sections;
+  /** Leaves settings; the Help tours need the page out of the way to run. */
+  onRequestClose?: () => void;
 }
 
 function appendDeveloperSection(
   sections: ConfigNavSection[],
+  t: TFunction<"translation", undefined>,
 ): ConfigNavSection[] {
   const hasDeveloper = sections.some((section) =>
     section.items.some(
@@ -72,12 +41,12 @@ function appendDeveloperSection(
   return [
     ...sections,
     {
-      title: "Developer",
+      title: t("settings.developer.title", "Developer"),
       items: [
         {
           key: "api-keys",
-          label: "API Keys",
-          icon: "key-rounded",
+          label: t("settings.developer.apiKeys", "API Keys"),
+          icon: "key",
           component: <ApiKeys />,
         },
       ],
@@ -116,10 +85,14 @@ function appendMcpSection(
     return sections;
   }
 
-  const mcpItem = {
+  const mcpItem: ConfigNavItem = {
     key: "mcp" as const,
     label: t("config.mcp.navLabel", "MCP Server"),
-    icon: "smart-toy-rounded",
+    description: t(
+      "config.mcp.description",
+      "Model Context Protocol (MCP) lets AI assistants like Claude use your Stirling PDF tools directly. Connect a client once and your assistant can convert, edit, secure and process documents on your behalf.",
+    ),
+    icon: "bot",
     component: <McpSection />,
   };
 
@@ -130,7 +103,13 @@ function appendMcpSection(
   );
 
   if (developerIndex === -1) {
-    return [...sections, { title: "Developer", items: [mcpItem] }];
+    return [
+      ...sections,
+      {
+        title: t("settings.developer.title", "Developer"),
+        items: [mcpItem],
+      },
+    ];
   }
 
   return sections.map((section, index) =>
@@ -138,6 +117,37 @@ function appendMcpSection(
       ? { ...section, items: [...section.items, mcpItem] }
       : section,
   );
+}
+
+function appendHelpSection(
+  sections: ConfigNavSection[],
+  t: TFunction<"translation", undefined>,
+  onRequestClose: () => void,
+): ConfigNavSection[] {
+  const hasHelp = sections.some((section) =>
+    section.items.some((item) => item.key === "help"),
+  );
+
+  if (hasHelp) {
+    return sections;
+  }
+
+  return [
+    ...sections,
+    {
+      title: t("settings.help.title", "Help"),
+      items: [
+        {
+          key: "help" as const,
+          label: t("settings.help.label", "Tours"),
+          icon: "circle-question-mark",
+          component: (
+            <HelpSection isAdmin={false} onRequestClose={onRequestClose} />
+          ),
+        },
+      ],
+    },
+  ];
 }
 
 // Legal links (privacy policy, terms, etc.). Shown to anonymous users too —
@@ -162,7 +172,7 @@ function appendLegalSection(
         {
           key: "legal" as const,
           label: t("settings.legal.label", "Legal"),
-          icon: "gavel-rounded",
+          icon: "gavel",
           component: <LegalSection />,
         },
       ],
@@ -173,10 +183,12 @@ function appendLegalSection(
 export function createSaasConfigNavSections(
   Overview: OverviewComponent,
   onLogoutClick: () => void,
-  { isDev = false, isAnonymous = false, t }: CreateSaasConfigNavSectionsOptions,
+  {
+    isAnonymous = false,
+    t,
+    onRequestClose = () => {},
+  }: CreateSaasConfigNavSectionsOptions,
 ): ConfigNavSection[] {
-  const baseSections = createCoreConfigNavSections(false, false, false);
-
   // Create Account section as the first section with Overview and Passwords & Security
   const accountSection: ConfigNavSection = {
     title: t("config.account.overview.title", "Account Settings"),
@@ -184,12 +196,12 @@ export function createSaasConfigNavSections(
       {
         key: "overview",
         label: t("config.account.overview.label", "Overview"),
-        icon: "account-circle",
+        icon: "circle-user",
         component: <Overview onLogoutClick={onLogoutClick} />,
       },
       {
         key: "security",
-        label: "Passwords & Security",
+        label: t("config.account.security.title", "Passwords & Security"),
         icon: "lock",
         component: <PasswordSecurity />,
       },
@@ -201,23 +213,16 @@ export function createSaasConfigNavSections(
     accountSection.items.push(createCloudTeamNavItem(t));
   }
 
-  let sections = [accountSection, ...baseSections];
-
-  // Suppress OSS-only sections (update checker, login config banner) not relevant in SaaS
-  sections = sections.map((section) => ({
-    ...section,
-    items: section.items.map((item) =>
-      item.key === "general"
-        ? {
-            ...item,
-            component: <GeneralSection hideUpdateSection hideAdminBanner />,
-          }
-        : item,
-    ),
-  }));
-
-  sections = ensurePreferencesSection(sections);
-  sections = appendDeveloperSection(sections);
+  // Login is always on and there is no local binary to update, so the setup
+  // banner and the update card stay off. Account lives in its own group above.
+  let sections = [
+    accountSection,
+    createPreferencesNavSection(t, {
+      hideAdminBanner: true,
+      hideUpdateSection: true,
+    }),
+  ];
+  sections = appendDeveloperSection(sections, t);
   sections = appendMcpSection(sections, t);
 
   if (!isAnonymous) {
@@ -227,11 +232,8 @@ export function createSaasConfigNavSections(
     sections = appendBillingSection(sections, t);
   }
 
+  sections = appendHelpSection(sections, t, onRequestClose);
   sections = appendLegalSection(sections, t);
-
-  if (isDev) {
-    console.debug("[AppConfigModal] SaaS navigation sections", sections);
-  }
 
   return sections;
 }

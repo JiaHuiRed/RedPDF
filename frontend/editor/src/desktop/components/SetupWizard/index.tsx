@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Stack, Text, Button, Alert, Loader, Center } from "@mantine/core";
+import { Stack, Text, Alert, Loader, Center } from "@mantine/core";
+import { Button } from "@app/ui/Button";
 import { DesktopAuthLayout } from "@app/components/SetupWizard/DesktopAuthLayout";
 import { SaaSLoginScreen } from "@app/components/SetupWizard/SaaSLoginScreen";
 import { SaaSSignupScreen } from "@app/components/SetupWizard/SaaSSignupScreen";
@@ -19,7 +20,7 @@ import {
 import { tauriBackendService } from "@app/services/tauriBackendService";
 import { STIRLING_SAAS_URL } from "@app/constants/connection";
 import { listen } from "@tauri-apps/api/event";
-import "@shared/auth/ui/auth.css";
+import "@app/auth/ui/auth.css";
 import { DisabledButtonWithTooltip } from "@app/components/shared/DisabledButtonWithTooltip";
 
 enum SetupStep {
@@ -52,12 +53,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const [selfHostedMfaCode, setSelfHostedMfaCode] = useState("");
   const [selfHostedMfaRequired, setSelfHostedMfaRequired] = useState(false);
   const [lockConnectionMode, setLockConnectionMode] = useState(false);
+  const [requireSignIn, setRequireSignIn] = useState(false);
+  const [cloudOnly, setCloudOnly] = useState(false);
+  const [policyLoaded, setPolicyLoaded] = useState(false);
+  const [policyError, setPolicyError] = useState(false);
   const [lockedServerUnreachable, setLockedServerUnreachable] = useState(false);
   const [lockedServerChecking, setLockedServerChecking] = useState(false);
 
   const handleSaaSLogin = async (username: string, password: string) => {
     if (!serverConfig) {
-      setError("No SaaS server configured");
+      setError(t("setup.error.noSaasServer", "No SaaS server configured"));
       return;
     }
 
@@ -65,10 +70,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       setLoading(true);
       setError(null);
 
-      // Only attempt password login if a password is provided
-      // If password is empty, assume OAuth login already completed
-      const isAlreadyAuthenticated = await authService.isAuthenticated();
-      if (!isAlreadyAuthenticated && password) {
+      if (password) {
         await authService.login(serverConfig.url, username, password);
       }
 
@@ -77,14 +79,18 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       onComplete();
     } catch (err) {
       console.error("SaaS login failed:", err);
-      setError(err instanceof Error ? err.message : "SaaS login failed");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("setup.error.saasLoginFailed", "SaaS login failed"),
+      );
       setLoading(false);
     }
   };
 
   const handleSaaSLoginOAuth = async (_userInfo: UserInfo) => {
     if (!serverConfig) {
-      setError("No SaaS server configured");
+      setError(t("setup.error.noSaasServer", "No SaaS server configured"));
       return;
     }
 
@@ -99,7 +105,12 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     } catch (err) {
       console.error("SaaS OAuth login completion failed:", err);
       setError(
-        err instanceof Error ? err.message : "Failed to complete SaaS login",
+        err instanceof Error
+          ? err.message
+          : t(
+              "setup.error.saasLoginIncomplete",
+              "Failed to complete SaaS login",
+            ),
       );
       setLoading(false);
     }
@@ -124,7 +135,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   };
 
   const handleSelfHostedClick = () => {
-    if (lockConnectionMode) {
+    if (lockConnectionMode || cloudOnly) {
       return;
     }
     setError(null);
@@ -159,7 +170,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
     if (!serverConfig) {
       console.error("[SetupWizard] ❌ No server configured");
-      setError("No server configured");
+      setError(t("setup.error.noServer", "No server configured"));
       return;
     }
 
@@ -188,7 +199,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       onComplete();
     } catch (err) {
       console.error("[SetupWizard] ❌ Self-hosted login failed:", err);
-      let errorMessage = "Self-hosted login failed";
+      let errorMessage = t(
+        "setup.error.selfHostedLoginFailed",
+        "Self-hosted login failed",
+      );
       if (err instanceof AuthServiceError) {
         if (err.code === "mfa_required" || err.code === "invalid_mfa_code") {
           setSelfHostedMfaRequired(true);
@@ -217,7 +231,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
     if (!serverConfig) {
       console.error("[SetupWizard] ❌ No server configured");
-      setError("No server configured");
+      setError(t("setup.error.noServer", "No server configured"));
       return;
     }
 
@@ -242,7 +256,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         err,
       );
       const errorMessage =
-        err instanceof Error ? err.message : "Failed to complete login";
+        err instanceof Error
+          ? err.message
+          : t("setup.error.loginIncomplete", "Failed to complete login");
       console.error("[SetupWizard] Error message:", errorMessage);
       setError(errorMessage);
       setLoading(false);
@@ -282,6 +298,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             return;
           }
 
+          await connectionModeService.assertSelfHostedAllowed(serverUrl);
+
           setLoading(true);
           setError(null);
 
@@ -319,7 +337,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       } catch (err) {
         console.error("[SetupWizard] Failed to handle deep link", err);
         setError(
-          err instanceof Error ? err.message : "Failed to complete signup",
+          err instanceof Error
+            ? err.message
+            : t("setup.error.signupIncomplete", "Failed to complete signup"),
         );
         setLoading(false);
       }
@@ -348,7 +368,17 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   };
 
   const loadLockedConfig = useCallback(async () => {
-    const currentConfig = await connectionModeService.getCurrentConfig();
+    setPolicyError(false);
+    const currentConfig = await connectionModeService
+      .getCurrentConfig()
+      .catch(() => null);
+    if (!currentConfig) {
+      setPolicyError(true);
+      return;
+    }
+    setRequireSignIn(currentConfig.require_sign_in ?? false);
+    setCloudOnly(currentConfig.cloud_only ?? false);
+    setPolicyLoaded(true);
     if (!currentConfig.lock_connection_mode) return;
     const serverUrl = currentConfig.server_config?.url;
     if (!serverUrl) return;
@@ -414,6 +444,30 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     void loadLockedConfig();
   }, [loadLockedConfig]);
 
+  if (policyError)
+    return (
+      <Center py="xl">
+        <Stack>
+          <Text>
+            {t(
+              "setup.error.policyUnavailable",
+              "Unable to load your organisation's sign-in settings.",
+            )}
+          </Text>
+          <Button onClick={() => void loadLockedConfig()}>
+            {t("common.retry", "Retry")}
+          </Button>
+        </Stack>
+      </Center>
+    );
+
+  if (!policyLoaded)
+    return (
+      <Center py="xl">
+        <Loader />
+      </Center>
+    );
+
   const wizardContent = (
     <>
       {/* Step Content */}
@@ -422,10 +476,10 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           serverUrl={serverConfig?.url || STIRLING_SAAS_URL}
           onLogin={handleSaaSLogin}
           onOAuthSuccess={handleSaaSLoginOAuth}
-          onSelfHostedClick={handleSelfHostedClick}
+          onSelfHostedClick={cloudOnly ? undefined : handleSelfHostedClick}
           onSwitchToSignup={handleSwitchToSignup}
-          onSkipSignIn={handleLocalMode}
-          onClose={onClose}
+          onSkipSignIn={requireSignIn ? undefined : handleLocalMode}
+          onClose={requireSignIn ? undefined : onClose}
           loading={loading}
           error={error}
         />
@@ -440,13 +494,15 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         />
       )}
 
-      {!lockConnectionMode && activeStep === SetupStep.ServerSelection && (
-        <ServerSelectionScreen
-          onSelect={handleServerSelection}
-          loading={loading}
-          error={error}
-        />
-      )}
+      {!lockConnectionMode &&
+        !cloudOnly &&
+        activeStep === SetupStep.ServerSelection && (
+          <ServerSelectionScreen
+            onSelect={handleServerSelection}
+            loading={loading}
+            error={error}
+          />
+        )}
 
       {lockConnectionMode && lockedServerChecking && (
         <Center py="xl">
@@ -476,8 +532,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               </Text>
             </Alert>
             <Button
-              variant="filled"
-              color="blue"
               fullWidth
               loading={loading}
               onClick={() => void loadLockedConfig()}
@@ -498,8 +552,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               </DisabledButtonWithTooltip>
             ) : (
               <Button
-                variant="light"
-                color="blue"
+                variant="secondary"
                 fullWidth
                 loading={loading}
                 onClick={() => {
@@ -513,17 +566,19 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 )}
               </Button>
             )}
-            <Button
-              variant="subtle"
-              color="white"
-              fullWidth
-              onClick={handleLocalMode}
-            >
-              {t(
-                "setup.selfhosted.unreachable.continueOffline",
-                "Use local tools instead",
-              )}
-            </Button>
+            {!requireSignIn && (
+              <Button
+                variant="tertiary"
+                accent="neutral"
+                fullWidth
+                onClick={handleLocalMode}
+              >
+                {t(
+                  "setup.selfhosted.unreachable.continueOffline",
+                  "Use local tools instead",
+                )}
+              </Button>
+            )}
           </Stack>
         )}
 
@@ -543,19 +598,24 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               loading={loading}
               error={error}
             />
-            <div
-              className="navigation-link-container"
-              style={{ marginTop: "1.5rem" }}
-            >
-              <button
-                type="button"
-                onClick={handleLocalMode}
-                className="navigation-link-button"
-                disabled={loading}
+            {!requireSignIn && (
+              <div
+                className="navigation-link-container"
+                style={{ marginTop: "1.5rem" }}
               >
-                {t("setup.selfhosted.switchToLocal", "Use local tools instead")}
-              </button>
-            </div>
+                <Button
+                  variant="tertiary"
+                  onClick={handleLocalMode}
+                  className="navigation-link-button"
+                  disabled={loading}
+                >
+                  {t(
+                    "setup.selfhosted.switchToLocal",
+                    "Use local tools instead",
+                  )}
+                </Button>
+              </div>
+            )}
           </>
         )}
 
@@ -565,13 +625,13 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           className="navigation-link-container"
           style={{ marginTop: "1.5rem" }}
         >
-          <button
-            type="button"
+          <Button
+            variant="tertiary"
             onClick={handleBack}
             className="navigation-link-button"
           >
             {t("common.back", "Back")}
-          </button>
+          </Button>
         </div>
       )}
     </>

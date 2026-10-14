@@ -1,5 +1,11 @@
-/* eslint-disable @typescript-eslint/no-explicit-any -- Axios-compatible API requires matching axios's `any` signatures */
+/* oxlint-disable typescript/no-explicit-any -- Axios-compatible API requires matching axios's `any` signatures */
 import { fetch } from "@tauri-apps/plugin-http";
+import { enforceDocumentPrivacy } from "@app/services/documentPrivacyService";
+import {
+  shouldUseFastLocalTransport,
+  fetchViaLocalProxy,
+  markFastTransportUnavailable,
+} from "@app/services/tauriLocalProxy";
 
 /**
  * Tauri HTTP Client - wrapper around Tauri's native HTTP client
@@ -26,10 +32,13 @@ export interface TauriHttpRequestConfig {
   withCredentials?: boolean;
   // Custom properties for desktop
   operationName?: string;
+  /** Pins background automation requests to the account and server that started them. */
+  automationSession?: string;
   skipBackendReadyCheck?: boolean;
   skipAuthRedirect?: boolean;
   // Axios compatibility properties (ignored by Tauri HTTP)
   suppressErrorToast?: boolean;
+  accountLinkBlockContext?: import("@app/services/accountLinkBlock").AccountLinkBlockContext;
   cancelToken?: any;
   signal?: AbortSignal;
 }
@@ -204,6 +213,11 @@ class TauriHttpClient {
 
     const url = this.buildUrl(finalConfig);
     const method = (finalConfig.method || "GET").toUpperCase();
+    const localProcessingOnly = await enforceDocumentPrivacy(
+      url,
+      method,
+      finalConfig.data,
+    );
 
     // Prepare request body and headers
     let body: BodyInit | undefined;
@@ -221,6 +235,16 @@ class TauriHttpClient {
           if (key.toLowerCase() === "content-type") {
             delete headers[key];
           }
+        }
+      } else if (finalConfig.data instanceof URLSearchParams) {
+        body = finalConfig.data.toString();
+        if (
+          !Object.keys(headers).some(
+            (key) => key.toLowerCase() === "content-type",
+          )
+        ) {
+          headers["Content-Type"] =
+            "application/x-www-form-urlencoded;charset=UTF-8";
         }
       } else if (typeof finalConfig.data === "object") {
         // Serialize as JSON
@@ -242,14 +266,20 @@ class TauriHttpClient {
       // Make the request using Tauri's native HTTP client (standard Fetch API)
       // Enable certificate bypass for HTTPS to handle missing intermediate certs and self-signed certs
       const fetchOptions: RequestInit & {
+        maxRedirections?: number;
         danger?: {
           acceptInvalidCerts: boolean;
           acceptInvalidHostnames: boolean;
         };
       } = {
         method,
-        headers,
+        // The dev webview has a Vite origin; cloud CORS accepts the packaged app origin.
+        // task desktop:dev alone enables the plugin feature needed to override Origin.
+        headers: import.meta.env.DEV
+          ? { Origin: "tauri://localhost", ...headers }
+          : headers,
         body,
+        ...(localProcessingOnly ? { maxRedirections: 0 } : {}),
         credentials,
         ...(finalConfig.signal ? { signal: finalConfig.signal } : {}),
       };
@@ -265,7 +295,47 @@ class TauriHttpClient {
         };
       }
 
-      const response = await fetch(url, fetchOptions);
+      // Fast path: for localhost PDF uploads/downloads, move the body as raw
+      // bytes via the Rust proxy instead of plugin-http's number-array IPC.
+      // Only binary localhost traffic qualifies (see shouldUseFastLocalTransport);
+      // everything else — remote requests, JSON/GET calls, anything without a
+      // PDF body — uses the unchanged plugin-http path. Falls back to plugin-http
+      // automatically if the fast path throws, so behaviour is never worse.
+      let response: Response;
+      if (
+        shouldUseFastLocalTransport(
+          url,
+          finalConfig.responseType,
+          finalConfig.data,
+        )
+      ) {
+        try {
+          response = await fetchViaLocalProxy(
+            url,
+            method,
+            headers,
+            body,
+            finalConfig.signal,
+          );
+        } catch (proxyError) {
+          // A deliberate abort must propagate, not silently re-issue the request.
+          if (
+            proxyError instanceof DOMException &&
+            proxyError.name === "AbortError"
+          ) {
+            throw proxyError;
+          }
+          // Fast path failed — trip the circuit breaker and fall back to plugin-http.
+          markFastTransportUnavailable();
+          console.warn(
+            "[TauriHttpClient] local fast-path failed; reverting to plugin-http for this session",
+            proxyError,
+          );
+          response = await fetch(url, fetchOptions);
+        }
+      } else {
+        response = await fetch(url, fetchOptions);
+      }
 
       // Convert Headers to plain object
       const responseHeaders: Record<string, string> = {};

@@ -2,13 +2,13 @@ import { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Stack,
-  SegmentedControl,
   Text,
   Radio,
   FileInput,
   PasswordInput,
   Divider,
 } from "@mantine/core";
+import { SegmentedControl } from "@app/ui/SegmentedControl";
 import { DrawingCanvas } from "@app/components/annotation/shared/DrawingCanvas";
 import { ImageUploader } from "@app/components/annotation/shared/ImageUploader";
 import { TextInputWithFont } from "@app/components/annotation/shared/TextInputWithFont";
@@ -238,15 +238,12 @@ const WetSignatureInput = ({
         <SegmentedControl
           value={signatureType}
           fullWidth
-          onChange={(value) =>
-            handleSignatureTypeChange(value as SignatureType)
-          }
-          data={[
-            { label: t("sign.type.canvas", "Draw"), value: "canvas" },
-            { label: t("sign.type.image", "Upload"), value: "image" },
-            { label: t("sign.type.text", "Type"), value: "text" },
+          onChange={(value) => handleSignatureTypeChange(value)}
+          options={[
+            { label: t("sign.type.canvas", "Draw"), value: "canvas", disabled },
+            { label: t("sign.type.image", "Upload"), value: "image", disabled },
+            { label: t("sign.type.text", "Type"), value: "text", disabled },
           ]}
-          disabled={disabled}
         />
       </Stack>
 
@@ -272,11 +269,11 @@ const WetSignatureInput = ({
               value="USER_CERT"
               label={t(
                 "certSign.collab.signRequest.usePersonalCert",
-                "Use My Personal Certificate",
+                "Stirling Sign · Personal",
               )}
               description={t(
                 "certSign.collab.signRequest.usePersonalCertDesc",
-                "Auto-generated for your account",
+                "Sign with the certificate created for your account.",
               )}
               disabled={disabled}
             />
@@ -284,11 +281,11 @@ const WetSignatureInput = ({
               value="SERVER"
               label={t(
                 "certSign.collab.signRequest.useServerCert",
-                "Use Organization Certificate",
+                "Stirling Sign · Organization",
               )}
               description={t(
                 "certSign.collab.signRequest.useServerCertDesc",
-                "Shared organization certificate",
+                "Sign with this server's shared organization certificate.",
               )}
               disabled={disabled}
             />
@@ -296,11 +293,11 @@ const WetSignatureInput = ({
               value="UPLOAD"
               label={t(
                 "certSign.collab.signRequest.uploadCert",
-                "Upload Custom Certificate",
+                "Upload a certificate",
               )}
               description={t(
                 "certSign.collab.signRequest.uploadCertDesc",
-                "Use your own PKCS12 certificate",
+                "Use your own PKCS12, PFX, PEM or JKS certificate.",
               )}
               disabled={disabled}
             />

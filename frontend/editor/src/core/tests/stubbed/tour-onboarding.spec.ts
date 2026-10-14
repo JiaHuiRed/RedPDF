@@ -1,6 +1,11 @@
 import path from "path";
 import { test, expect } from "@app/tests/helpers/stub-test-base";
-import { uploadFiles, openSettings } from "@app/tests/helpers/ui-helpers";
+import {
+  uploadFiles,
+  openSettings,
+  expandSettingsGroups,
+  revealPickerTool,
+} from "@app/tests/helpers/ui-helpers";
 
 /**
  * Tour selector integrity tests.
@@ -17,7 +22,10 @@ import { uploadFiles, openSettings } from "@app/tests/helpers/ui-helpers";
  *   - whatsNewStepsConfig.ts
  */
 
-const SAMPLE_PDF = path.join(__dirname, "../test-fixtures/sample.pdf");
+const SAMPLE_PDF = path.join(
+  import.meta.dirname,
+  "../test-fixtures/sample.pdf",
+);
 
 // ---------------------------------------------------------------------------
 // 15.1 Static layout - always visible on the main page
@@ -48,9 +56,8 @@ test.describe("15.1 Tour selectors - static layout", () => {
   });
 
   test("tool-button-crop is present in tool panel", async ({ page }) => {
-    await expect(
-      page.locator('[data-tour="tool-button-crop"]').first(),
-    ).toBeVisible({ timeout: 10_000 });
+    const tile = await revealPickerTool(page, "crop");
+    await expect(tile.first()).toBeVisible({ timeout: 10_000 });
   });
 
   // help-button: not yet implemented in the redesigned FileSidebar layout.
@@ -197,21 +204,19 @@ test.describe("15.7 Tour selectors - admin modal nav items", () => {
   });
 
   const adminNavSections = [
-    "people",
-    "teams",
+    "users",
     "adminGeneral",
-    "adminFeatures",
-    "adminEndpoints",
-    "adminDatabase",
-    "adminConnections",
+    "adminAdvanced",
+    "adminSecurity",
     "adminAudit",
     "adminUsage",
-    "help",
+    "about",
   ] as const;
 
   for (const section of adminNavSections) {
     test(`admin-${section}-nav is present`, async ({ page }) => {
       await openSettings(page);
+      await expandSettingsGroups(page);
       const navItem = page
         .locator(`[data-tour="admin-${section}-nav"]`)
         .first();

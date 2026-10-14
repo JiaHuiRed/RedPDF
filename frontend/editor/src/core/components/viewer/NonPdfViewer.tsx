@@ -1,9 +1,9 @@
-import { useCallback, useMemo } from "react";
-import { Box, Button, Center, Stack, Text } from "@mantine/core";
-import ArticleIcon from "@mui/icons-material/Article";
-import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
-
-import { useFileState } from "@app/contexts/FileContext";
+import React, { useCallback, useMemo } from "react";
+import { Box, Center, Stack, Text } from "@mantine/core";
+import { useTranslation } from "react-i18next";
+import { Button } from "@app/ui/Button";
+import { Icon } from "@app/ui/Icon";
+import { useAllFiles } from "@app/contexts/FileContext";
 import { useViewer } from "@app/contexts/ViewerContext";
 import { useToolWorkflow } from "@app/contexts/ToolWorkflowContext";
 import {
@@ -20,8 +20,6 @@ import { TextViewer } from "@app/components/viewer/nonpdf/TextViewer";
 import { HtmlViewer } from "@app/components/viewer/nonpdf/HtmlViewer";
 
 export interface ViewerProps {
-  sidebarsVisible: boolean;
-  setSidebarsVisible: (v: boolean) => void;
   onClose?: () => void;
   previewFile?: File | null;
 }
@@ -31,6 +29,7 @@ export interface NonPdfViewerProps extends ViewerProps {
 }
 
 export function NonPdfViewer({ file }: NonPdfViewerProps) {
+  const { t } = useTranslation();
   const fileType = useMemo(() => detectNonPdfFileType(file), [file]);
 
   const { handleToolSelect, toolAvailability } = useToolWorkflow();
@@ -70,23 +69,25 @@ export function NonPdfViewer({ file }: NonPdfViewerProps) {
         return (
           <Center style={{ flex: 1 }}>
             <Stack align="center" gap="sm">
-              <ArticleIcon
-                style={{
-                  fontSize: "3rem",
-                  color: "var(--mantine-color-gray-4)",
-                }}
+              <Icon
+                name="file-text"
+                size={"3rem"}
+                style={{ color: "var(--mantine-color-gray-4)" }}
               />
               <Text c="dimmed" size="sm">
-                Preview not available for this file type
+                {t(
+                  "viewer.nonPdf.previewUnavailable",
+                  "Preview not available for this file type",
+                )}
               </Text>
               {isConvertAvailable && (
                 <Button
-                  variant="light"
-                  color="orange"
-                  leftSection={<PictureAsPdfIcon />}
+                  variant="secondary"
+                  accent="warning"
+                  leftSection={<Icon name="file-pdf" />}
                   onClick={handleConvertToPdf}
                 >
-                  Convert to PDF
+                  {t("viewer.nonPdf.convertToPdf", "Convert to PDF")}
                 </Button>
               )}
             </Stack>
@@ -103,6 +104,9 @@ export function NonPdfViewer({ file }: NonPdfViewerProps) {
         flex: 1,
         overflow: "hidden",
         position: "relative",
+        // The Convert button floats over the content; viewers that draw their
+        // own top bar read this to keep their text clear of it.
+        "--nonpdf-action-inset": isConvertAvailable ? "11rem" : "0rem",
       }}
     >
       <NonPdfBanner
@@ -125,8 +129,8 @@ export function NonPdfViewer({ file }: NonPdfViewerProps) {
 // ─── Wrapper that resolves the active file from FileContext ───────────────────
 
 export function NonPdfViewerWrapper(props: ViewerProps) {
-  const { selectors } = useFileState();
-  const activeFiles = selectors.getFiles();
+  const { t } = useTranslation();
+  const { files: activeFiles } = useAllFiles();
   const { activeFileIndex } = useViewer();
 
   const file =
@@ -136,7 +140,7 @@ export function NonPdfViewerWrapper(props: ViewerProps) {
     return (
       <Center style={{ flex: 1 }}>
         <Text c="dimmed" size="sm">
-          No file loaded
+          {t("viewer.nonPdf.noFile", "No file loaded")}
         </Text>
       </Center>
     );
